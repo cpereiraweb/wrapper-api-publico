@@ -1,16 +1,20 @@
 # Implantando na Kronn
 
 A imagem é construída pelo GitHub Actions a cada push na `main`, publicada no
-GHCR e implantada na Kronn pelo deploy hook. O caminho inteiro:
+GHCR e implantada na Kronn pelo **auto-deploy** dela: um webhook do GitHub, do
+repositório, avisa a Kronn a cada publicação de pacote, e ela reimplanta quando o
+`:latest` mudou. O caminho inteiro:
 
 ```
 push na main → ci.yml, uma execução só, em sequência:
   1. fmt, vet, testes, link cgo, govulncheck, lint, segredo   (em paralelo)
   2. job publicar (publicar.yml), só se TODOS passarem:
        build → :teste-<sha> → fumaça → integração NFS-e → libs conferidas
-             → :<sha> → :latest → deploy hook
-                                                        │
-Kronn (app nfe-api, Docker sem Swarm)  ◀──────────────┘
+             → :<sha> → :latest
+                           │
+GitHub: webhook do repositório (eventos package e registry_package)
+                           │
+Kronn (app nfe-api, Docker sem Swarm), só quando o :latest mudou
   docker pull ghcr.io/cpereiraweb/wrapper-api/api:latest
   docker compose down --remove-orphans
   docker compose up -d --force-recreate --remove-orphans
@@ -22,6 +26,15 @@ andam depois de o teste de fumaça provar que a imagem sobe e que a lib nativa
 carrega nos quatro serviços, de a integração gerar o XML de cada provedor de
 NFS-e contra a lib da imagem e de as libs da imagem baterem com as do release:
 imagem que falhou ali nunca chega à Kronn, nem por um redeploy manual. Para republicar um commit, re-execute o CI dele.
+
+O webhook dispara a cada tag publicada, inclusive o `:teste-<sha>` e as tags
+de release, mas a Kronn só reimplanta quando o `:latest` aponta para outra
+imagem: as demais aparecem em *Deployments* como "Sem alteração".
+
+O passo "implanta na Kronn" do `publicar.yml` (secret `KRONN_DEPLOY_HOOK`)
+fica desligado: o secret não existe, e o passo só registra um aviso. Com o
+webhook ativo, cadastrá-lo faria cada publicação implantar duas vezes. Ele só
+serve se o webhook do repositório deixar de existir.
 
 Cada deploy derruba e sobe os dois containers: são alguns segundos sem serviço
 (o worker carrega a lib e só então a API sobe). Uma transmissão em curso não é
@@ -40,12 +53,14 @@ Os três passos exigem **admin** do repositório `cpereiraweb/wrapper-api`.
    público (*Package settings* → *Change visibility*): o código já é público,
    sob AGPL, e a imagem não carrega segredo. Se ficar privado, a credencial da
    Kronn precisa ser de alguém com leitura nele.
-3. **Cadastrar o secret `KRONN_DEPLOY_HOOK`** (*Settings* → *Secrets and
-   variables* → *Actions*) com a URL do deploy hook da app, que sai do passo 4
-   abaixo. Sem ele o workflow publica a imagem e para, com um aviso.
+3. **Webhook do repositório para a Kronn** (*Settings* → *Webhooks*), com os
+   eventos *Packages* e *Registry packages*, apontando para `kronn.io`. É ele
+   que dispara o deploy, junto com o auto-deploy da app ligado (passo 4
+   abaixo). Confira que está ativo e que a última entrega respondeu 200:
+   `gh api repos/cpereiraweb/wrapper-api/hooks --jq '.[] | {active, events, ultimo: .last_response.code}'`
 
-A URL do hook é a autenticação: quem a tiver dispara deploy. Ela vive só no
-secret, nunca em arquivo, issue ou chat.
+A URL do webhook é a autenticação: quem a tiver dispara deploy. Ela vive só no
+GitHub e na Kronn, nunca em arquivo, issue ou chat.
 
 ## Uma vez, na Kronn
 
@@ -74,7 +89,7 @@ secret, nunca em arquivo, issue ou chat.
    os labels do Traefik, então a Kronn o usa como está: se mudar o domínio no
    painel, mude também a linha do `Host(...)` aqui.
 4. **`.env`:** cole o bloco abaixo e preencha o `API_TOKEN`. Ligue o
-   **auto-deploy** e copie a URL do deploy hook para o secret do GitHub.
+   **auto-deploy** (*Configuração* → *Deploy Automático*).
 5. **DNS:** aponte o domínio para o servidor. O Traefik da Kronn emite o
    certificado Let's Encrypt no primeiro acesso.
 6. **Primeiro deploy** pelo painel, e confira:

@@ -13,7 +13,7 @@ sem conflito, quebra o CI.
 
 | Área | Mudança | Onde |
 |---|---|---|
-| Deploy | Deploy contínuo na Kronn: push na `main` → gates do CI → `publicar.yml` (build, fumaça, integração, libs, `:<sha>`, `:latest`) → deploy hook | `.github/workflows/ci.yml`, `publicar.yml`, `deploy/kronn/` |
+| Deploy | Deploy contínuo na Kronn: push na `main` → gates do CI → `publicar.yml` (build, fumaça, integração, libs, `:<sha>`, `:latest`) → webhook de pacotes do GitHub → auto-deploy da Kronn | `.github/workflows/ci.yml`, `publicar.yml`, `deploy/kronn/` |
 | Deploy | Release pela tag `v*`, promovendo o `:<sha>` já publicado; não move `:latest` | `.github/workflows/release.yml` |
 | Deploy | `make ship` acompanha o `ci.yml`; sem build no push de `release/vX.Y.Z` | `.workflow.conf` |
 | Deploy | `stop_grace_period` da Kronn acima do encerramento do serviço (timeout do worker + margem) | `deploy/kronn/docker-compose.yml` |
@@ -66,8 +66,11 @@ do fork.
 
 ## Release e deploy
 
-- **Deploy:** todo push na `main` que passar nos gates publica `:<sha>`, move
-  `:latest` e chama o deploy hook da Kronn (secret `KRONN_DEPLOY_HOOK`).
+- **Deploy:** todo push na `main` que passar nos gates publica `:<sha>` e move
+  `:latest`. O webhook do repositório (eventos de pacote) avisa a Kronn, e o
+  auto-deploy dela reimplanta quando o `:latest` mudou. O secret
+  `KRONN_DEPLOY_HOOK` fica sem cadastrar: com o webhook ativo, ele faria cada
+  publicação implantar duas vezes. Ver `deploy/kronn/README.md`.
 - **Release:** `vX.Y.Z-d3s.N`, sobre a versão do upstream em que o fork está.
   É uma tag num commit da `main` já publicado:
   `git tag -a v1.8.0-d3s.1 -m v1.8.0-d3s.1 && git push origin v1.8.0-d3s.1`.
