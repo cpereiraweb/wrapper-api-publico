@@ -4,7 +4,7 @@
 // da ACBrLibNFSe (libacbrnfse64.so).
 //
 // Fluxo por operação: NFSE_Inicializar (handle MT, exige caminho de config) →
-// aplica config (SSL Linux + certificado + chaves do tenant) → CarregarINI /
+// aplica config (SSL Linux + certificado + chaves da sessão) → CarregarINI /
 // Emitir / Consultar → NFSE_Finalizar.
 //
 // ATENÇÃO: o agendador do Go troca goroutines de thread; toda sequência de
@@ -17,7 +17,7 @@ package acbr
 
 /*
 #cgo CFLAGS: -I${SRCDIR}
-#cgo LDFLAGS: -lacbrnfse64 -lacbrcte64 -lacbrmdfe64 -lacbrnfe64 -lacbrboleto64
+#cgo LDFLAGS: -lacbrnfse64 -lacbrcte64 -lacbrmdfe64 -lacbrboleto64
 #include "acbrlib.h"
 */
 import "C"
@@ -39,6 +39,10 @@ import (
 // bufferLen é o tamanho inicial do buffer de resposta (mesma convenção do SDK
 // oficial: BUFFER_LEN=256). Se a resposta for maior, esTamanho retorna o
 // tamanho real e relemos via NFSE_UltimoRetorno.
+//
+// O buffer tem sempre um byte a mais: a lib copia até esTamanho bytes e ainda põe
+// o NUL (StrLCopy), então um buffer do tamanho exato transborda em toda resposta
+// que o preenche, e o byte cai no heap do Go.
 const bufferLen = 256
 
 // Valores de SSL obrigatórios no Linux (ver enums do ACBr / SDK C#):
@@ -64,7 +68,6 @@ func newServicos(cfg config.ACBr) *Servicos {
 		NFSe:   &cgoLib{cfg: cfg},
 		CTe:    newCTeLib(cfg),
 		MDFe:   newMDFeLib(cfg),
-		NFe:    newNFeLib(cfg),
 		Boleto: newBoletoLib(cfg),
 	}
 }
@@ -93,7 +96,7 @@ type dfeSession struct {
 	arqCfg  string // nome do arquivo de config (ex.: "acbrlibcte.ini")
 }
 
-func (s *dfeSession) run(t TenantConfig, fn func(h C.LibHandle) (Result, error)) (Result, error) {
+func (s *dfeSession) run(t Sessao, fn func(h C.LibHandle) (Result, error)) (Result, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -104,7 +107,7 @@ func (s *dfeSession) run(t TenantConfig, fn func(h C.LibHandle) (Result, error))
 	if err := os.MkdirAll(base, 0o755); err != nil {
 		return Result{}, fmt.Errorf("criando diretório base: %w", err)
 	}
-	sessionDir, err := os.MkdirTemp(base, s.slug+"-"+tenantSlug(t.CNPJ)+"-")
+	sessionDir, err := os.MkdirTemp(base, s.slug+"-"+rotuloDaSessao(t.CNPJ)+"-")
 	if err != nil {
 		return Result{}, fmt.Errorf("criando diretório de sessão: %w", err)
 	}
@@ -113,11 +116,7 @@ func (s *dfeSession) run(t TenantConfig, fn func(h C.LibHandle) (Result, error))
 
 	if s.cfg.LogPath != "" {
 		_ = os.MkdirAll(s.cfg.LogPath, 0o755)
-		nivel := s.cfg.LogNivel
-		if nivel == "" {
-			nivel = "4"
-		}
-		_ = os.WriteFile(cfgPath, []byte("[Principal]\nLogNivel="+nivel+"\nLogPath="+s.cfg.LogPath+"\n"), 0o644)
+		_ = os.WriteFile(cfgPath, []byte("[Principal]\nLogNivel="+s.cfg.LogNivel+"\nLogPath="+s.cfg.LogPath+"\n"), 0o644)
 	}
 
 	cArq := C.CString(cfgPath)
@@ -142,8 +141,8 @@ func (s *dfeSession) run(t TenantConfig, fn func(h C.LibHandle) (Result, error))
 const timeZonePorUF = "1"
 
 // applyConfig grava SSL (Linux) + certificado A1 + paths graváveis + schemas +
-// as chaves adicionais do tenant.
-func (s *dfeSession) applyConfig(h C.LibHandle, t TenantConfig, savePath string) error {
+// as chaves adicionais da sessão.
+func (s *dfeSession) applyConfig(h C.LibHandle, t Sessao, savePath string) error {
 	kvs := []ConfigKV{
 		{"DFe", "SSLCryptLib", sslCryptOpenSSL},
 		{"DFe", "SSLHttpLib", sslHttpOpenSSL},
@@ -184,7 +183,7 @@ func (s *dfeSession) applyConfig(h C.LibHandle, t TenantConfig, savePath string)
 // callBuf aplica a convenção de buffer da ACBrLib usando a UltimoRetorno do
 // serviço (via vtable). Igual à callBuffer do NFSe, mas genérica.
 func (s *dfeSession) callBuf(h C.LibHandle, call func(buf *C.char, size *C.int) C.int) (int, string) {
-	buf := make([]byte, bufferLen)
+	buf := make([]byte, bufferLen+1)
 	size := C.int(bufferLen)
 	ret := int(call((*C.char)(unsafe.Pointer(&buf[0])), &size))
 	var resp string
@@ -234,7 +233,7 @@ func pdfDecodificado(resp string) []byte {
 func (l *cgoLib) Backend() string { return "cgo" }
 
 func (l *cgoLib) Version() (string, error) {
-	res, err := l.withSession(TenantConfig{}, func(h C.LibHandle) (Result, error) {
+	res, err := l.withSession(Sessao{}, func(h C.LibHandle) (Result, error) {
 		code, resp := callBuffer(h, func(buf *C.char, size *C.int) C.int {
 			return C.NFSE_Versao(h, buf, size)
 		})
@@ -249,7 +248,7 @@ func (l *cgoLib) Version() (string, error) {
 	return res.Resposta, nil
 }
 
-func (l *cgoLib) Emitir(t TenantConfig, iniNFSe string) (Result, error) {
+func (l *cgoLib) Emitir(t Sessao, iniNFSe string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		if code, resp := configCarregarINI(h, iniNFSe); code != 0 {
 			return Result{Codigo: code, Resposta: resp}, fmt.Errorf("NFSE_CarregarINI falhou: %d", code)
@@ -283,7 +282,7 @@ func (l *cgoLib) Emitir(t TenantConfig, iniNFSe string) (Result, error) {
 // RenderizarPDF gera o DANFSE a partir do XML já autorizado (CarregarXML →
 // SalvarPDF), fora do caminho de emissão. Exige o .so com widgetset GTK2 sob
 // Xvfb (o nogui não rasteriza: TBitmap sem backend → SIGSEGV).
-func (l *cgoLib) RenderizarPDF(t TenantConfig, xml string) (Result, error) {
+func (l *cgoLib) RenderizarPDF(t Sessao, xml string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cXML, free := cstrFree(xml)
 		defer free()
@@ -306,7 +305,7 @@ func (l *cgoLib) RenderizarPDF(t TenantConfig, xml string) (Result, error) {
 // identificador da DPS antes de qualquer envio, e é com ele que o cliente
 // descobre o desfecho de uma transmissão cuja resposta se perdeu: em vez de
 // reenviar e arriscar duplicar.
-func (l *cgoLib) ConsultarDPSPorChave(t TenantConfig, chaveDPS string) (Result, error) {
+func (l *cgoLib) ConsultarDPSPorChave(t Sessao, chaveDPS string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		c, free := cstrFree(chaveDPS)
 		defer free()
@@ -320,7 +319,7 @@ func (l *cgoLib) ConsultarDPSPorChave(t TenantConfig, chaveDPS string) (Result, 
 // MontarXML carrega o INI e devolve o XML montado, SEM transmitir ao provedor.
 // Para a NFS-e o documento gerado é o RPS/DPS (NFSE_ObterXmlRps); o NFSE_ObterXml
 // devolve a NFS-e final, que só existe após a autorização (vazio no preview).
-func (l *cgoLib) MontarXML(t TenantConfig, ini string) (Result, error) {
+func (l *cgoLib) MontarXML(t Sessao, ini string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		if code, resp := configCarregarINI(h, ini); code != 0 {
 			return Result{Codigo: code, Resposta: resp}, fmt.Errorf("NFSE_CarregarINI falhou: %d", code)
@@ -340,14 +339,14 @@ func (l *cgoLib) MontarXML(t TenantConfig, ini string) (Result, error) {
 // ValidarRegras não existe para a NFS-e: o ACBrNFSeX não exporta validação de
 // regras de negócio (CT-e e MDF-e exportam). Falha explícita em vez de devolver
 // "ok" silencioso, que faria o cliente confiar numa validação que não ocorreu.
-func (l *cgoLib) ValidarRegras(TenantConfig, string) (Result, error) {
+func (l *cgoLib) ValidarRegras(Sessao, string) (Result, error) {
 	return Result{}, ErrNaoSuportado
 }
 
 // Transmitir envia a DPS montada na geração (NFSE_CarregarXML → NFSE_Emitir). É
 // aqui que o provedor assina: a NFS-e não expõe assinatura separada, então a
 // geração entrega a DPS crua e o certificado só é necessário neste ponto.
-func (l *cgoLib) Transmitir(t TenantConfig, xml string) (Result, error) {
+func (l *cgoLib) Transmitir(t Sessao, xml string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cXML, free := cstrFree(xml)
 		defer free()
@@ -376,7 +375,7 @@ func (l *cgoLib) Transmitir(t TenantConfig, xml string) (Result, error) {
 // Cancelar envia o evento de cancelamento. eInfCancelamento é o INI
 // [CancelarNFSe] (passado diretamente, não via CarregarINI). Em caso de
 // sucesso, tenta capturar o XML do evento gerado (ObterXml índice 0).
-func (l *cgoLib) Cancelar(t TenantConfig, iniCancel string) (Result, error) {
+func (l *cgoLib) Cancelar(t Sessao, iniCancel string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cIni, freeIni := cstrFree(iniCancel)
 		defer freeIni()
@@ -404,7 +403,7 @@ func (l *cgoLib) Cancelar(t TenantConfig, iniCancel string) (Result, error) {
 // NFSE_Cancelar levanta ERR_NAO_IMP antes de qualquer byte sair
 // (ACBrNFSeXProviderProprio.pas:682). O que o PN implementa é o pedido de
 // registro de evento, e o cancelamento é o tpEvento e101101.
-func (l *cgoLib) EnviarEvento(t TenantConfig, ini string) (Result, error) {
+func (l *cgoLib) EnviarEvento(t Sessao, ini string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cIni, freeIni := cstrFree(ini)
 		defer freeIni()
@@ -424,10 +423,10 @@ func (l *cgoLib) EnviarEvento(t TenantConfig, ini string) (Result, error) {
 }
 
 // InformacoesProvedor lê as capacidades declaradas do provedor do município
-// configurado no tenant (NFSE_ObterInformacoesProvedor). Sem rede e sem
+// configurado na sessão (NFSE_ObterInformacoesProvedor). Sem rede e sem
 // certificado: a resposta sai de ConfiguracoesGeral, preenchida quando o
 // provedor foi selecionado pelo CodigoMunicipio.
-func (l *cgoLib) InformacoesProvedor(t TenantConfig) (Result, error) {
+func (l *cgoLib) InformacoesProvedor(t Sessao) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		code, resp := callBuffer(h, func(buf *C.char, size *C.int) C.int {
 			return C.NFSE_ObterInformacoesProvedor(h, buf, size)
@@ -456,20 +455,10 @@ func salvarPDF(h C.LibHandle) []byte {
 	return nil
 }
 
-// iniValue extrai "chave=valor" de um texto INI simples (primeira ocorrência).
-func iniValue(text, key string) string {
-	for _, line := range strings.Split(text, "\n") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && k == key {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
-}
-
 // SubstituirNFSe carrega a DPS substituta (NFSE_CarregarINI) e transmite a
 // substituição da NFS-e antiga (NFSE_SubstituirNFSe). O componente exige a nota
 // nova carregada antes. Em sucesso captura o XML; o PDF sai sob demanda.
-func (l *cgoLib) SubstituirNFSe(t TenantConfig, iniNovaDPS string, sub SubstituicaoNFSe) (Result, error) {
+func (l *cgoLib) SubstituirNFSe(t Sessao, iniNovaDPS string, sub SubstituicaoNFSe) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		if code, resp := configCarregarINI(h, iniNovaDPS); code != 0 {
 			return Result{Codigo: code, Resposta: resp}, fmt.Errorf("NFSE_CarregarINI (DPS substituta) falhou: %d", code)
@@ -503,7 +492,7 @@ func (l *cgoLib) SubstituirNFSe(t TenantConfig, iniNovaDPS string, sub Substitui
 	})
 }
 
-func (l *cgoLib) Consultar(t TenantConfig, chave string) (Result, error) {
+func (l *cgoLib) Consultar(t Sessao, chave string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cChave := C.CString(chave)
 		defer C.free(unsafe.Pointer(cChave))
@@ -514,20 +503,28 @@ func (l *cgoLib) Consultar(t TenantConfig, chave string) (Result, error) {
 	})
 }
 
-// ConsultarDFe consulta a Distribuição DF-e do ADN (Padrão Nacional) por NSU.
-// O CNPJ é resolvido pela config do componente (aplicada em withSession), não
-// pelo parâmetro. A resposta é o INI de [ConsultarDFe] + [Arquivo###].
-func (l *cgoLib) ConsultarDFe(t TenantConfig, nsu int) (Result, error) {
+// ConsultarDFe consulta a Distribuição DF-e por NSU. Com cnpj, chama a função
+// do patch 0005, que leva o cnpjConsulta; sem, a da lib oficial. A resposta é o
+// INI de [ConsultarDFe] + [Arquivo###].
+func (l *cgoLib) ConsultarDFe(t Sessao, cnpj string, nsu int) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
+		if cnpj == "" {
+			code, resp := callBuffer(h, func(buf *C.char, size *C.int) C.int {
+				return C.NFSE_ConsultarDFe(h, C.int(nsu), buf, size)
+			})
+			return Result{Codigo: code, Resposta: resp}, nil
+		}
+		cCNPJ := C.CString(cnpj)
+		defer C.free(unsafe.Pointer(cCNPJ))
 		code, resp := callBuffer(h, func(buf *C.char, size *C.int) C.int {
-			return C.NFSE_ConsultarDFe(h, C.int(nsu), buf, size)
+			return C.NFSE_ConsultarDFePorCNPJ(h, cCNPJ, C.int(nsu), buf, size)
 		})
 		return Result{Codigo: code, Resposta: resp}, nil
 	})
 }
 
 // ConsultarPorNumero consulta a NFS-e pelo número (paginação por pagina≥1).
-func (l *cgoLib) ConsultarPorNumero(t TenantConfig, numero string, pagina int) (Result, error) {
+func (l *cgoLib) ConsultarPorNumero(t Sessao, numero string, pagina int) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cn := C.CString(numero)
 		defer C.free(unsafe.Pointer(cn))
@@ -539,7 +536,7 @@ func (l *cgoLib) ConsultarPorNumero(t TenantConfig, numero string, pagina int) (
 }
 
 // ConsultarPorFaixa consulta NFS-e numa faixa de números (paginação).
-func (l *cgoLib) ConsultarPorFaixa(t TenantConfig, inicial, final string, pagina int) (Result, error) {
+func (l *cgoLib) ConsultarPorFaixa(t Sessao, inicial, final string, pagina int) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		ci := C.CString(inicial)
 		cf := C.CString(final)
@@ -553,7 +550,7 @@ func (l *cgoLib) ConsultarPorFaixa(t TenantConfig, inicial, final string, pagina
 }
 
 // ConsultarPorRps consulta a NFS-e a partir do RPS que a originou.
-func (l *cgoLib) ConsultarPorRps(t TenantConfig, numeroRps, serie, tipo, codVerificacao string) (Result, error) {
+func (l *cgoLib) ConsultarPorRps(t Sessao, numeroRps, serie, tipo, codVerificacao string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cn := C.CString(numeroRps)
 		cs := C.CString(serie)
@@ -571,7 +568,7 @@ func (l *cgoLib) ConsultarPorRps(t TenantConfig, numeroRps, serie, tipo, codVeri
 }
 
 // ConsultarSituacao consulta a situação de um lote pelo protocolo/numLote.
-func (l *cgoLib) ConsultarSituacao(t TenantConfig, protocolo, numLote string) (Result, error) {
+func (l *cgoLib) ConsultarSituacao(t Sessao, protocolo, numLote string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cp := C.CString(protocolo)
 		cl := C.CString(numLote)
@@ -589,7 +586,7 @@ func (l *cgoLib) ConsultarSituacao(t TenantConfig, protocolo, numLote string) (R
 // Quando o lote gerou nota, a lib a carrega na lista (a sessão começa vazia, então
 // é o índice 0) e o XML dela vem junto, como na transmissão. É o único jeito de
 // ter o documento autorizado de um provedor assíncrono.
-func (l *cgoLib) ConsultarLoteRps(t TenantConfig, protocolo, numLote string) (Result, error) {
+func (l *cgoLib) ConsultarLoteRps(t Sessao, protocolo, numLote string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cp := C.CString(protocolo)
 		cl := C.CString(numLote)
@@ -610,7 +607,7 @@ func (l *cgoLib) ConsultarLoteRps(t TenantConfig, protocolo, numLote string) (Re
 	})
 }
 
-func (l *cgoLib) ObterPDF(t TenantConfig, chave string) (Result, error) {
+func (l *cgoLib) ObterPDF(t Sessao, chave string) (Result, error) {
 	return l.withSession(t, func(h C.LibHandle) (Result, error) {
 		cChave := C.CString(chave)
 		defer C.free(unsafe.Pointer(cChave))
@@ -621,29 +618,12 @@ func (l *cgoLib) ObterPDF(t TenantConfig, chave string) (Result, error) {
 	})
 }
 
-// XmlParaIni carrega um XML de NFSe e devolve o INI canônico (CarregarXML +
-// ObterIni). Ferramenta de diagnóstico para descobrir o conjunto completo de
-// campos que a lib espera.
-func (l *cgoLib) XmlParaIni(t TenantConfig, xml string) (Result, error) {
-	return l.withSession(t, func(h C.LibHandle) (Result, error) {
-		cXML, freeXML := cstrFree(xml)
-		defer freeXML()
-		if code := int(C.NFSE_CarregarXML(h, cXML)); code != 0 {
-			return Result{Codigo: code, Resposta: ultimoRetorno(h, 0)}, nil
-		}
-		code, resp := callBuffer(h, func(buf *C.char, size *C.int) C.int {
-			return C.NFSE_ObterIni(h, 0, buf, size)
-		})
-		return Result{Codigo: code, Resposta: resp}, nil
-	})
-}
-
 func (l *cgoLib) Close() error { return nil } // sessões são por-chamada; nada a fechar
 
-// withSession inicializa um handle MT com o config do tenant, aplica a
+// withSession inicializa um handle MT com o config da sessão, aplica a
 // configuração, executa fn e finaliza. Fixa a thread do SO durante toda a
 // sequência (a lib não é reentrante por handle).
-func (l *cgoLib) withSession(t TenantConfig, fn func(h C.LibHandle) (Result, error)) (Result, error) {
+func (l *cgoLib) withSession(t Sessao, fn func(h C.LibHandle) (Result, error)) (Result, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -657,7 +637,7 @@ func (l *cgoLib) withSession(t TenantConfig, fn func(h C.LibHandle) (Result, err
 	// Diretório efêmero por emissão: guarda o config (com o cert em texto puro)
 	// e os XMLs/JSONs que o ACBr salva (PathSalvar). Apagado por inteiro ao
 	// fim da sessão: nada sensível fica em repouso.
-	sessionDir, err := os.MkdirTemp(base, "nfse-"+tenantSlug(t.CNPJ)+"-")
+	sessionDir, err := os.MkdirTemp(base, "nfse-"+rotuloDaSessao(t.CNPJ)+"-")
 	if err != nil {
 		return Result{}, fmt.Errorf("criando diretório de sessão: %w", err)
 	}
@@ -668,11 +648,7 @@ func (l *cgoLib) withSession(t TenantConfig, fn func(h C.LibHandle) (Result, err
 	// arquivo de config, então gravamos [Principal] LogNivel/LogPath ANTES.
 	if l.cfg.LogPath != "" {
 		_ = os.MkdirAll(l.cfg.LogPath, 0o755)
-		nivel := l.cfg.LogNivel
-		if nivel == "" {
-			nivel = "4"
-		}
-		preCfg := "[Principal]\nLogNivel=" + nivel + "\nLogPath=" + l.cfg.LogPath + "\n"
+		preCfg := "[Principal]\nLogNivel=" + l.cfg.LogNivel + "\nLogPath=" + l.cfg.LogPath + "\n"
 		_ = os.WriteFile(cfgPath, []byte(preCfg), 0o644)
 	}
 
@@ -694,8 +670,8 @@ func (l *cgoLib) withSession(t TenantConfig, fn func(h C.LibHandle) (Result, err
 }
 
 // applyConfig grava as chaves de configuração na instância: SSL para Linux,
-// certificado A1 (se informado) e as chaves adicionais do tenant.
-func applyConfig(h C.LibHandle, t TenantConfig, savePath, schemasPath string) error {
+// certificado A1 (se informado) e as chaves adicionais da sessão.
+func applyConfig(h C.LibHandle, t Sessao, savePath, schemasPath string) error {
 	kvs := []ConfigKV{
 		{"DFe", "SSLCryptLib", sslCryptOpenSSL},
 		{"DFe", "SSLHttpLib", sslHttpOpenSSL},
@@ -759,7 +735,7 @@ func configCarregarINI(h C.LibHandle, ini string) (int, string) {
 // maior e é relida via NFSE_UltimoRetorno. Em caso de erro sem conteúdo no
 // buffer, busca a mensagem no último retorno.
 func callBuffer(h C.LibHandle, call func(buf *C.char, size *C.int) C.int) (int, string) {
-	buf := make([]byte, bufferLen)
+	buf := make([]byte, bufferLen+1)
 	size := C.int(bufferLen)
 	ret := int(call((*C.char)(unsafe.Pointer(&buf[0])), &size))
 
@@ -821,8 +797,8 @@ func cstr(b []byte) string {
 	return sb.String()
 }
 
-// tenantSlug reduz o CNPJ a dígitos para compor um nome de arquivo seguro.
-func tenantSlug(cnpj string) string {
+// rotuloDaSessao reduz o CNPJ a dígitos para compor um nome de arquivo seguro.
+func rotuloDaSessao(cnpj string) string {
 	var b strings.Builder
 	for _, r := range cnpj {
 		if r >= '0' && r <= '9' {

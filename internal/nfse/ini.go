@@ -661,8 +661,8 @@ func (b *iniBuilder) tributacao(v Valores) {
 		b.Secao("totTrib")
 		if i := t.IndTotTrib; i != nil {
 			// 0 é o único valor válido do indicador de não destaque, e era o que
-			// KVIntOpt descartava. Sem a chave, o gravador do GISS cai no ramo do
-			// pTotTribSN e emite 0.00, que a prefeitura recusa com E160.
+			// KVIntOpt descartava. Sem a chave a lib presume 1, e o gravador do
+			// GISS escolhe o ramo de totTrib pelo regime do Simples.
 			b.KV("indTotTrib", strconv.Itoa(*i))
 		}
 		b.KVOpt("pTotTribSN", inifmt.MoneyOpt(t.PTotTribSN))
@@ -961,10 +961,10 @@ func (b *iniBuilder) pessoaIntermediario(p Intermediario) {
 // Município brasileiro decide, então: o país é 1058 mesmo que venha outro cPais,
 // que é o que o gravador do Padrão Nacional já faz ao escolher <endNac> pelo
 // CodigoMunicipio. Sem município vale o cPais informado, e nada é presumido, nem
-// no ABRASF: parte dos municípios roteados para ele usa gravador APIPropria,
-// descendente do Padrão Nacional, onde CodigoPais diferente de 0 sem
-// CodigoMunicipio faz sair <endExt>, e um 1058 presumido viraria endereço no
-// exterior com país Brasil e campos vazios.
+// no ABRASF, que segue a regra do Padrão Nacional: no gravador nacional, e nos
+// APIPropria que descendem dele, CodigoPais diferente de 0 sem CodigoMunicipio
+// faz sair <endExt>, e um 1058 presumido viraria endereço no exterior com país
+// Brasil e campos vazios.
 func codigoPais(p Pessoa) int {
 	if municipioBrasileiro(p.CMun) {
 		return codigoPaisBrasil

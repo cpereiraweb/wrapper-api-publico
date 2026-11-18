@@ -1,6 +1,6 @@
 // Package fiscal é o vocabulário comum aos módulos de documento (CT-e, MDF-e,
 // NFS-e, boletos): o certificado que chega no payload, o ambiente, a montagem
-// do TenantConfig e a tradução dos erros da lib para HTTP.
+// do Sessao e a tradução dos erros da lib para HTTP.
 //
 // Existe para que essas quatro decisões sejam tomadas UMA vez. Num serviço em
 // que cada requisição carrega um certificado alheio, "cada módulo trata do seu
@@ -21,6 +21,7 @@ import (
 
 	"github.com/4devsmart/wrapper-api/internal/acbr"
 	"github.com/4devsmart/wrapper-api/internal/platform/httpx"
+	"github.com/4devsmart/wrapper-api/internal/platform/inifmt"
 )
 
 // Certificado é o A1 (.pfx) que o cliente envia na chamada que transmite.
@@ -205,13 +206,13 @@ func AmbienteValido(w http.ResponseWriter, ambiente string) (string, bool) {
 	return a, true
 }
 
-// Tenant monta a configuração da sessão nativa. secao é a seção de config do
+// Sessao monta a configuração da sessão nativa. secao é a seção de config do
 // documento na ACBrLib ("CTe", "MDFe", "NFSe").
 //
 // cert zerado é legítimo e é o caso da geração: montar e validar não assinam
 // nem falam com a SEFAZ, então não precisam de certificado.
-func Tenant(cnpj, secao, ambiente string, cert Certificado) acbr.TenantConfig {
-	return acbr.TenantConfig{
+func Sessao(cnpj, secao, ambiente string, cert Certificado) acbr.Sessao {
+	return acbr.Sessao{
 		CNPJ:      cnpj,
 		PFXBase64: strings.TrimSpace(cert.PFXBase64),
 		SenhaPFX:  cert.Senha,
@@ -249,20 +250,35 @@ func SoDigitos(s string) string {
 //   - o resto: a lib falhou de forma conhecida (502).
 func ResponderErroDaLib(w http.ResponseWriter, doc string, res acbr.Result, err error) {
 	detalhes := detalhesDaLib(res)
-	switch {
-	case errors.Is(err, acbr.ErrUnavailable):
-		httpx.ErroDetalhado(w, http.StatusServiceUnavailable, "lib_indisponivel",
+	codigo := CodigoDoErroDaLib(err)
+	switch codigo {
+	case "lib_indisponivel":
+		httpx.ErroDetalhado(w, http.StatusServiceUnavailable, codigo,
 			"o motor fiscal de "+doc+" não está disponível; a chamada não foi enviada", detalhes)
-	case errors.Is(err, acbr.ErrNaoSuportado):
-		httpx.ErroDetalhado(w, http.StatusUnprocessableEntity, "operacao_nao_suportada",
+	case "operacao_nao_suportada":
+		httpx.ErroDetalhado(w, http.StatusUnprocessableEntity, codigo,
 			"esta operação não existe para "+doc, detalhes)
-	case errors.Is(err, acbr.ErrIndeterminado):
-		httpx.ErroDetalhado(w, http.StatusBadGateway, "desfecho_indeterminado",
+	case "desfecho_indeterminado":
+		httpx.ErroDetalhado(w, http.StatusBadGateway, codigo,
 			"a operação pode ter sido transmitida e a resposta se perdeu: NÃO repita: consulte pela chave para saber o desfecho",
 			detalhes)
 	default:
-		httpx.ErroDetalhado(w, http.StatusBadGateway, "falha_na_lib",
+		httpx.ErroDetalhado(w, http.StatusBadGateway, codigo,
 			"o motor fiscal de "+doc+" falhou: "+err.Error(), detalhes)
+	}
+}
+
+// CodigoDoErroDaLib é o código que ResponderErroDaLib devolve para o erro.
+func CodigoDoErroDaLib(err error) string {
+	switch {
+	case errors.Is(err, acbr.ErrUnavailable):
+		return "lib_indisponivel"
+	case errors.Is(err, acbr.ErrNaoSuportado):
+		return "operacao_nao_suportada"
+	case errors.Is(err, acbr.ErrIndeterminado):
+		return "desfecho_indeterminado"
+	default:
+		return "falha_na_lib"
 	}
 }
 
@@ -287,13 +303,13 @@ type Validacao struct {
 }
 
 // Montar gera o documento, e é comum a todos: monta o XML a partir do INI e roda
-// as regras de negócio. Não assina e não fala com a SEFAZ, por isso o Tenant
+// as regras de negócio. Não assina e não fala com a SEFAZ, por isso a Sessao
 // que chega aqui não precisa (nem deve) trazer certificado.
 //
 // São duas sessões nativas. É deliberado: sem certificado, abrir sessão é
 // barato: o custo real, carregar o PFX, só existe na transmissão. Juntar as duas num
 // método do binding é otimização a fazer depois de medir.
-func Montar(svc acbr.Servico, t acbr.TenantConfig, ini string) (xml string, val Validacao, res acbr.Result, err error) {
+func Montar(svc acbr.Servico, t acbr.Sessao, ini string) (xml string, val Validacao, res acbr.Result, err error) {
 	res, err = svc.MontarXML(t, ini)
 	if err != nil {
 		return "", Validacao{}, res, err
@@ -315,7 +331,7 @@ func Montar(svc acbr.Servico, t acbr.TenantConfig, ini string) (xml string, val 
 // SetRetorno(ErrOK, Erros) incondicionalmente, e o MDF-e faz igual. Quem diz que
 // passou é a RESPOSTA VIR VAZIA. Conferir o código daria "válido" para qualquer
 // documento.
-func validarRegras(svc acbr.Servico, t acbr.TenantConfig, ini string) (Validacao, acbr.Result, error) {
+func validarRegras(svc acbr.Servico, t acbr.Sessao, ini string) (Validacao, acbr.Result, error) {
 	res, err := svc.ValidarRegras(t, ini)
 	switch {
 	case errors.Is(err, acbr.ErrNaoSuportado):
@@ -411,9 +427,19 @@ func StatusDoEvento(status string) int {
 
 // --- utilidades -------------------------------------------------------------
 
-// AgoraLocal formata data/hora no formato que o StringToDateTime do ACBr aceita
-// (sem fuso; a lib aplica o do estado ao gerar o XML).
-func AgoraLocal() string { return time.Now().Format("2006-01-02 15:04:05") }
+// FusoDaChave é o fuso da UF que abre a chave de acesso (CT-e e MDF-e).
+func FusoDaChave(chave string) *time.Location {
+	cuf, _ := strconv.Atoi(chave[:min(2, len(chave))])
+	return inifmt.LocalDoCodigoUF(cuf)
+}
+
+// DataHoraDoEvento é o dhEvento no fuso do documento: o informado, ou agora. A lib
+// carimba o fuso da UF sobre o relógio que recebe, sem converter nada, e o
+// container roda em UTC: time.Now() cru sairia três horas adiantado.
+func DataHoraDoEvento(informado, chave string) string {
+	fuso := FusoDaChave(chave)
+	return inifmt.DataHoraNoFuso(Primeiro(informado, time.Now().Format(time.RFC3339)), fuso)
+}
 
 // Linhas quebra um texto em linhas não vazias (saída de validação da lib).
 func Linhas(s string) []string {

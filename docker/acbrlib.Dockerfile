@@ -17,7 +17,7 @@ ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 # Revisão dos fontes (apenas informativo aqui; o checkout real é feito por
 # `make acbr-fonte`, que popula ./acbr-source, o contexto deste build).
-ARG ACBR_REV=48100
+ARG ACBR_REV=49010
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates make \
@@ -38,12 +38,14 @@ COPY frce /src/frce
 # Patches locais sobre o fonte pinado (docker/acbr-patches), em ordem. Cada um
 # corrige um defeito da lib que o trunk2 ainda não tem, e diz no cabeçalho o que
 # corrige e a revisão base. O build falha se um deles não aplicar limpo: patch
-# que não entra devolveria o defeito sem ninguém ver.
+# que não entra devolveria o defeito sem ninguém ver. --fuzz=0 porque o padrão do
+# patch é 2: um hunk cujo contexto mudou upstream entrava "com fuzz" no código
+# novo, e foi o que o 0003 fez na r48784, onde o GISS reescreveu o totTrib.
 COPY --from=patches . /patches
 RUN set -eux; apt-get update; apt-get install -y --no-install-recommends patch; \
     rm -rf /var/lib/apt/lists/*; \
     for p in /patches/*.patch; do [ -e "$p" ] || continue; \
-      patch -p1 --binary --forward -d /src/acbr < "$p"; \
+      patch -p1 --binary --forward --fuzz=0 -d /src/acbr < "$p"; \
     done
 
 # Registra TODOS os .lpk necessários como package links do lazbuild:
@@ -88,7 +90,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends lcl-gtk2 \
 
 # Compila a variante MultiThread para Linux x86_64 com widgetset GTK2.
 ARG LIB_DIR=/src/acbr/Projetos/ACBrLib/Fontes/NFSe
+#
+# O -g sai antes: desde a r48988 o modo Linux-x86_64-MT da NFS-e traz -g no
+# CustomOptions, só neste projeto. Com smart linking e strip, a .so cresce de 17 MB
+# para 86 MB e fica com símbolos indefinidos ($ACBROBJECTSERIALIZERFPC$_Ld81), e o
+# worker não linka. Não é patch porque o Jenkins muda o BuildNr do .lpi a cada
+# build, e o --fuzz=0 recusaria. Se o trunk2 corrigir, o sed não faz nada.
 RUN set -eux; cd "${LIB_DIR}"; \
+    sed -i 's/\(CustomOptions Value="-dMT -dNOGUI\) -g"/\1"/' ACBrLibNFSe.lpi; \
     lazbuild --widgetset=gtk2 --build-mode="Linux-x86_64-MT" ACBrLibNFSe.lpi; \
     mkdir -p /artifacts; \
     find "${LIB_DIR}" -name 'libacbrnfse*.so' -o -name 'acbrnfse*.so' | xargs -I{} cp -v {} /artifacts/; \

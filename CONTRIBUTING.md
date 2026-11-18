@@ -101,7 +101,7 @@ um `switch` lê aquele `Args` de volta para chamar o método. **Nada no
 compilador liga as duas pontas**: um nome de método com typo, ou um campo de
 `Args` trocado, compila e vira dado errado atravessando a fronteira em silêncio.
 
-Por isso o teste percorre todos os métodos das cinco interfaces, chama cada um
+Por isso o teste percorre todos os métodos das quatro interfaces, chama cada um
 pelo cliente com uma sentinela distinta por posição, e cobra do outro lado o
 mesmo nome e os mesmos valores. O espião que recebe as chamadas **não embute
 nada**: método novo numa interface quebra a compilação, e quem o acrescentar é
@@ -178,10 +178,41 @@ DhEmi  string `json:"dhEmi"  fmt:"data-hora"`
 Campo enumerado que aparece como `integer` puro no Swagger não diz nada a quem
 integra. Se você encostar num, aproveite e enriqueça.
 
+## Fluxo de trabalho e release
+
+```bash
+make feature name=modulo-assunto   # ou make fix: branch a partir de develop
+make finish                        # gate local, e entra em develop
+make release                       # versão, CHANGELOG, tag, release/vX.Y.Z e PR
+make ship                          # depois da revisão: entrega
+```
+
+`main` só anda por `make ship`. Uma versão entrega três coisas, e cada uma tem um
+momento:
+
+| O quê | Quando | Quem garante |
+|---|---|---|
+| Lib | Antes do commit que sobe `ACBR_REV` | `make finish` recusa sem o release das libs |
+| Imagem | No push de `release/vX.Y.Z`, que `make release` faz | `publicar.yml`: fumaça, integração e libs |
+| Tags | No push da `main`, que `make ship` faz | `release.yml` promove o digest testado |
+
+O `make ship` espera o `publicar.yml` e não move a `main` se ele falhou. Depois,
+acompanha o `release.yml` até o fim. Nada é compilado de novo na entrega.
+
+O `CHANGELOG.md` e o `VERSION` só mudam no `make release`, e a versão sai dos
+commits em Conventional Commits. O que exige ação de quem atualiza vai numa linha na
+mensagem do commit, e abre o CHANGELOG e a página do release:
+
+```text
+feat(config): prazo de parada configurável
+
+Antes-de-atualizar: defina stop_grace_period de 120s na API e no worker.
+```
+
 ## Pull requests
 
 - um assunto por PR;
-- `make fmt-check vet test` verdes;
+- `make ci` verde;
 - teste que falharia sem a sua mudança;
 - comentário explicando **por que**, não o que: o código já diz o que.
 

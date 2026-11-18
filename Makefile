@@ -8,7 +8,7 @@ SHELL   := /bin/bash
 # ACBR_REV é a FONTE ÚNICA da revisão do ACBr: o script de download monta a tag
 # do release a partir dela, e o snapshot de chaves do lockstep é regenerado em
 # lockstep com ela. Ao bumpar, republique as libs e regenere os snapshots.
-ACBR_REV ?= 48100
+ACBR_REV ?= 49010
 # O FortesReport CE entra nos .so junto com o ACBr (ele rasteriza DACTE/DAMDFE/
 # DANFSE). Seguia o master, o que fazia METADE do binário flutuar enquanto o
 # ACBr era pinado com cuidado: um build de 2026-08 pegou um FortesReport de
@@ -18,7 +18,7 @@ ACBR_FRCE_REF ?= 9c29ee7152a6293d3920ff44a2bf3cd384d7b081
 # próprio: a aba de Releases passa a ter só versões deste serviço. O arquivo
 # revisao.txt vai junto dos .so e precisa bater com ACBR_REV, senão o download
 # recusa: sem o nome da revisão na tag, nada mais amarraria as duas coisas.
-ACBR_LIBS_RELEASE ?= v1.3.0
+ACBR_LIBS_RELEASE ?= acbrlib-r49010
 OUT     := out
 PKGS    := ./...
 ACBRLIBS ?= ./acbr-libs
@@ -50,6 +50,19 @@ run:
 ## test: testes de unidade
 test:
 	CGO_ENABLED=0 go test $(PKGS)
+
+## test-integracao-nfse: raiz do XML por provedor contra uma API com worker
+# Exige WRAPPER_API_URL (e WRAPPER_API_TOKEN se a API tiver token). Um
+# município por (provedor, versão, API própria), cobrando que o XML gerado seja
+# do layout que a tabela informa.
+test-integracao-nfse:
+	@test -n "$(WRAPPER_API_URL)" || { echo "defina WRAPPER_API_URL"; exit 1; }
+	CGO_ENABLED=0 go test -tags integracao -run 'TestRaizDoXMLPorProvedor|TestGoldenXML' -count=1 -v ./internal/nfse
+
+## golden-nfse: regrava testdata/golden_xml contra uma API com worker. Revise o diff.
+golden-nfse:
+	@test -n "$(WRAPPER_API_URL)" || { echo "defina WRAPPER_API_URL"; exit 1; }
+	CGO_ENABLED=0 go test -tags integracao -run TestGoldenXML -count=1 ./internal/nfse -args -atualizar-golden
 
 ## test-cgo: type-check e link do binding cgo contra as .so (não executa a lib)
 test-cgo:
@@ -114,6 +127,23 @@ acbr-fonte:
 		debian:bookworm-slim sh -c \
 		'apt-get update -qq && apt-get install -y -qq --no-install-recommends subversion git ca-certificates >/dev/null && sh /acbr-fonte.sh'
 
+## acbr-analise: relatório do que muda até uma revisão do ACBr (só lê; ALVO=HEAD)
+# Vem antes de compilar: diz se os patches ainda fazem sentido, quais municípios
+# trocam de provedor e qual nota técnica cada ambiente passa a usar. O relatório
+# fica em out/, que não é versionado.
+ALVO ?= HEAD
+acbr-analise:
+	@rm -rf "$(OUT)/acbr-analise" && mkdir -p "$(OUT)/acbr-analise"
+	docker run --rm \
+		-v "$(abspath $(OUT)/acbr-analise):/saida" \
+		-v "$(abspath docker/acbr-patches):/patches:ro" \
+		-v "$(abspath scripts/acbr-analise-coleta.sh):/coleta.sh:ro" \
+		-e ACBR_REV=$(ACBR_REV) -e ALVO=$(ALVO) \
+		-e LANG=C.UTF-8 -e LC_ALL=C.UTF-8 \
+		debian:bookworm-slim sh -c \
+		'apt-get update -qq && apt-get install -y -qq --no-install-recommends subversion patch ca-certificates >/dev/null 2>&1 && sh /coleta.sh'
+	@python3 scripts/acbr-analise.py "$(OUT)/acbr-analise"
+
 ## acbr-compilar: compila as .so a partir de acbr-source/ (offline, LENTO)
 acbr-compilar:
 	@test -d $(ACBR_SRC)/acbr && test -d $(ACBR_SRC)/frce || { \
@@ -144,6 +174,10 @@ acbr-extrair:
 	@# dizia OK do mesmo jeito.
 	@cd $(ACBRLIBS) && sha256sum libacbrnfse64.so libacbrcte64.so libacbrmdfe64.so \
 		libacbrnfe64.so libacbrboleto64.so schemas.tar.gz > SHA256SUMS
+	@# Pelo mesmo motivo, o revisao.txt: ficava o da revisão anterior ao lado das
+	@# .so novas, e o acbr-libs-baixar, que usa o arquivo como cache, as tomava
+	@# por desatualizadas.
+	@echo "$(ACBR_REV)" > $(ACBRLIBS)/revisao.txt
 	@$(MAKE) --no-print-directory acbr-libs-conferir
 
 ## acbr-tabelas: regenera municipios_provedor.tsv a partir do fonte do ACBr
@@ -154,6 +188,9 @@ acbr-tabelas:
 	@test -d $(ACBR_SRC)/acbr || { \
 	  echo "falta o fonte em $(ACBR_SRC): rode 'make acbr-fonte'"; exit 1; }
 	@python3 scripts/gerar-tabelas-nfse.py
+## acbr-tabelas-conferir: falha se municipios_provedor.tsv divergir do fonte pinado
+acbr-tabelas-conferir:
+	@python3 scripts/gerar-tabelas-nfse.py --conferir
 ## acbr-chaves: regenera os snapshots de chaves de INI que a lib aceita
 # Gerado do fonte Pascal pinado. O TSV era editado à mão e tinha três erros:
 # chave de fallback ausente (segundo argumento de ReadString aninhado), capM3
@@ -167,6 +204,16 @@ acbr-chaves:
 ## acbr-chaves-conferir: falha se os snapshots divergirem do fonte pinado
 acbr-chaves-conferir:
 	@python3 scripts/gerar-chaves-lerini.py --conferir
+
+## ci: o gate do make finish. Lint, spec e integração ficam no CI
+ci:
+	$(MAKE) fmt-check vet test acbr-libs-publicadas
+
+## acbr-libs-publicadas: falha se o release das libs não tiver a revisão pinada
+# É a lib, a primeira das três coisas que uma versão entrega: sem ela no release,
+# o build da imagem falharia só depois, na branch da release.
+acbr-libs-publicadas:
+	@ACBR_REV=$(ACBR_REV) ACBR_LIBS_RELEASE=$(ACBR_LIBS_RELEASE) ./scripts/conferir-libs-publicadas.sh
 
 ## acbr-libs-baixar: baixa as libs nativas dos anexos de release (cache local)
 acbr-libs-baixar:
@@ -189,6 +236,12 @@ acbr-libs-conferir:
 	if [ "$$falta" = 1 ]; then echo; echo "Rode 'make acbr-libs-baixar'."; exit 1; fi
 	@echo "acbr-libs OK"
 
+## imagem-libs-conferir: confere que as .so de IMAGEM são as do SHA256SUMS em acbr-libs/
+# Rode depois do docker-build, ou contra uma imagem publicada:
+#   make imagem-libs-conferir IMAGEM=ghcr.io/4devsmart/wrapper-api/api:v1.3.1
+imagem-libs-conferir:
+	@scripts/conferir-libs-imagem.sh "$(or $(IMAGEM),$(APP_IMAGE))" $(ACBRLIBS)
+
 ## docker-build: constrói a imagem (exige acbr-libs/)
 docker-build: acbr-libs-conferir
 	docker build \
@@ -207,9 +260,15 @@ limpar:
 	rm -rf $(OUT)
 
 ## help: esta lista
+# Dois formatos: "## alvo: texto" acima do alvo, aqui, e "alvo: ## texto" no fluxo git.
 help:
-	@grep -hE '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /' | sort
+	@{ grep -hE '^## [a-z]' $(MAKEFILE_LIST); \
+	   grep -hE '^[a-z-]+:.* ## ' $(MAKEFILE_LIST) | sed -E 's/^([a-z-]+):.* ## /## \1: /'; \
+	 } | sed 's/^## /  /' | sort
 
-.PHONY: build build-cgo run test test-cgo openapi openapi-check openapi-valida yaml-valida enums-conferir vet fmt fmt-check tidy limpar help \
+.PHONY: ci acbr-libs-publicadas acbr-analise build build-cgo run test test-integracao-nfse test-cgo openapi openapi-check openapi-valida yaml-valida enums-conferir vet fmt fmt-check tidy limpar help \
 	acbr-fonte acbr-compilar acbr-extrair \
-	acbr-libs-baixar acbr-libs-publicar acbr-libs-conferir docker-build up down
+	acbr-libs-baixar acbr-libs-publicar acbr-libs-conferir imagem-libs-conferir docker-build up down
+
+# O fluxo git: feature, fix, finish, release, ship (ver scripts/git-flow.mk).
+include scripts/git-flow.mk

@@ -1,7 +1,10 @@
 package nfse
 
 import (
+	"encoding/xml"
+	"io"
 	"regexp"
+	"strings"
 
 	"github.com/4devsmart/wrapper-api/internal/tabelas"
 )
@@ -19,11 +22,12 @@ const (
 //
 // NFS-e é o único documento multi-provedor: cada município escolhe o seu, e o
 // layout de entrada muda. A cadeia é município → provedor → família → layout
-// (internal/tabelas). Município sem provedor conhecido é recusado ANTES de
-// transmitir: mandar XML inválido para a prefeitura só troca um erro claro por
-// um obscuro.
+// (internal/tabelas), salvo onde a lib usa a API própria do provedor, que gera
+// DPS e por isso é Padrão Nacional na entrada. Município sem provedor conhecido
+// é recusado ANTES de transmitir: mandar XML inválido para a prefeitura só
+// troca um erro claro por um obscuro.
 func LayoutDoMunicipio(cmun string) (Layout, bool) {
-	switch tabelas.FamiliaPorMunicipio(cmun).LayoutBase() {
+	switch tabelas.LayoutPorMunicipio(cmun) {
 	case "padrao_nacional":
 		return LayoutPadraoNacional, true
 	case "abrasf":
@@ -41,7 +45,7 @@ func LayoutDoMunicipio(cmun string) (Layout, bool) {
 // ToINIDoLayout escolhe o construtor de INI conforme o layout. Padrão Nacional
 // usa o construtor de DPS; ABRASF e próprios usam o mesmo construtor de RPS.
 func ToINIDoLayout(l Layout, p DPSPedido) string {
-	if l == LayoutPadraoNacional || l == "" {
+	if l == LayoutPadraoNacional {
 		return ToINI(p)
 	}
 	return ToINIAbrasf(p)
@@ -93,3 +97,127 @@ var (
 	reCLocIncid    = regexp.MustCompile(abre + `cLocIncid>([0-9]{7})<`)
 	reOrgaoGerador = regexp.MustCompile(`(?s)` + abre + `OrgaoGerador>.*?` + abre + `CodigoMunicipio>([0-9]{7})<`)
 )
+
+// nsNFSeNacional é o namespace da DPS e da NFS-e do Padrão Nacional.
+const nsNFSeNacional = "http://www.sped.fazenda.gov.br/nfse"
+
+// RaizXML é o primeiro elemento de um XML: o que identifica o leiaute.
+type RaizXML struct {
+	Nome      string `json:"nome"`
+	Namespace string `json:"namespace"`
+}
+
+// RaizDoXML lê só o primeiro elemento. Falso se não houver elemento, o que é
+// legítimo fora do Padrão Nacional: há provedor próprio que monta JSON ou TXT.
+func RaizDoXML(doc string) (RaizXML, bool) {
+	d := xml.NewDecoder(strings.NewReader(doc))
+	// Só o nome do primeiro elemento importa, e ele é ASCII: a declaração
+	// ISO-8859-1 de alguns provedores não precisa de conversão.
+	d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return RaizXML{}, false
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return RaizXML{Nome: se.Name.Local, Namespace: se.Name.Space}, true
+		}
+	}
+}
+
+// PadraoNacional diz se a raiz é de um gravador do Padrão Nacional: DPS, ou
+// qualquer raiz no namespace nacional (Citta, Digifred, SilTecnologia e
+// DBSeller pela API própria geram NFSe). O namespace sozinho não basta: o
+// Fiorilli pela API própria grava DPS em http://www.fiorilli.com.br/nfse-nacional.
+func (r RaizXML) PadraoNacional() bool {
+	return r.Nome == "DPS" || r.Namespace == nsNFSeNacional
+}
+
+// LayoutConfere diz se a raiz do XML gerado é do layout resolvido para o
+// município.
+//
+// É a guarda contra a classe de defeito em que a tabela de roteamento e a lib
+// discordam. A lib escolhe o gravador por município; se o layout daqui disser
+// outra coisa, o XML sai com o envelope de um leiaute e os valores de outro, e
+// nenhum dos dois o aceita. Brasília saiu assim: DPS com cTribNac "01.05".
+func LayoutConfere(l Layout, r RaizXML) bool {
+	return (l == LayoutPadraoNacional) == r.PadraoNacional()
+}
+
+// reCTribMunISSNet é o que o gravador do ISSNet aceita sem trocar por 0: só
+// dígitos, não zero, e no máximo 9 significativos, porque o StrToIntDef
+// converte para Integer de 32 bits e um valor acima de 2147483647 também vira 0.
+var reCTribMunISSNet = regexp.MustCompile(`^0*[1-9][0-9]{0,8}$`)
+
+// reCTribMunNacional é o cTribMun do gravador nacional: opcional, e quando vem
+// tem exatamente 3 posições (PadraoNacional.GravarXml.pas, GerarXMLCodigoServico).
+var reCTribMunNacional = regexp.MustCompile(`^[0-9]{3}$`)
+
+// ValidarDPSDoMunicipio confere o que o gravador do município exige e a lib não
+// acusa, e devolve a frase do erro (vazia se está tudo certo).
+//
+// O caso é o ISSNet pela API própria (Brasília, Goiânia e outros): o gravador
+// emite cTribMun obrigatório como inteiro, StrToIntDef(..., 0)
+// (ISSNet.GravarXml.pas, GerarXMLCodigoServico). Sem o campo, ou com texto, a
+// DPS sai com <cTribMun>0</cTribMun>, sem alerta da lib, e Brasília recusou
+// com EM020, E244 e EM076. No Padrão Nacional o campo é opcional, e nos ABRASF
+// que o exigem (ISSGoiania, Centi) a lib já sinaliza a tag vazia.
+//
+// Vale também o tomador, em todo município de layout padrao_nacional: ver
+// validarTomadorPN.
+//
+// A nota que sai pelo Ambiente Nacional segue as regras dele, mesmo num município
+// do ISSNet: o cTribMun é opcional, mas com o tamanho que o gravador exige.
+func ValidarDPSDoMunicipio(cmun string, p DPSPedido) string {
+	nacional := dpsPeloAmbienteNacional(cmun, p)
+	if c := strings.TrimSpace(p.InfDPS.Serv.CTribMun); nacional && c != "" && !reCTribMunNacional.MatchString(c) {
+		return "serv.cTribMun tem exatamente 3 dígitos na emissão pelo Ambiente Nacional"
+	}
+	issnet := !nacional && strings.EqualFold(tabelas.ProvedorNFSe(cmun), "ISSNet") && tabelas.APIPropriaNFSe(cmun)
+	if issnet && !reCTribMunISSNet.MatchString(strings.TrimSpace(p.InfDPS.Serv.CTribMun)) {
+		return "serv.cTribMun é obrigatório neste município (ISSNet): o código de tributação municipal, " +
+			"numérico, como cadastrado para o prestador na prefeitura"
+	}
+	if l, _ := LayoutDoMunicipio(cmun); l == LayoutPadraoNacional {
+		return validarTomadorPN(p.InfDPS.Toma, issnet)
+	}
+	return ""
+}
+
+// validarTomadorPN recusa o toma que o gravador do Padrão Nacional (e os da
+// API própria, que descendem dele) transformaria em outra coisa sem avisar
+// (PadraoNacional.GravarXml.pas, GerarXMLTomador):
+//
+//   - sem xNome o grupo <toma> inteiro some, documento e endereço junto;
+//   - sem CPF, CNPJ nem NIF sai <cNaoNIF>, e sem a chave o LerIni presume 0
+//     ("não informado na nota de origem"). O motivo é de tomador no exterior,
+//     não de consumidor sem CPF, e o XSD do ISSNet (Brasília) nem tem o 0:
+//     aceita só 1 e 2.
+//
+// O consumidor não identificado é a DPS sem toma, que os dois XSDs aceitam
+// (minOccurs=0) e o DANFSE imprime como "TOMADOR/ADQUIRENTE DA OPERAÇÃO NÃO
+// IDENTIFICADO NA NFS-e". No ABRASF o tomador sem documento é legítimo, e esta
+// regra não vale lá.
+func validarTomadorPN(toma *Tomador, issnet bool) string {
+	if toma == nil {
+		return ""
+	}
+	const semTomador = "; para consumidor não identificado, omita toma"
+	if strings.TrimSpace(toma.XNome) == "" {
+		return "toma.xNome é obrigatório quando toma é informado" + semTomador
+	}
+	if strings.TrimSpace(toma.CPF+toma.CNPJ+toma.NIF) != "" {
+		return ""
+	}
+	switch strings.TrimSpace(toma.CNaoNIF) {
+	case "":
+		return "toma sem CPF, CNPJ ou NIF: informe o documento" + semTomador +
+			" (cNaoNIF é o motivo de tomador no exterior sem NIF)"
+	case "0":
+		if issnet {
+			return "toma.cNaoNIF=0 não é aceito neste município (ISSNet): use 1 (dispensado) ou 2 (não exigido)" +
+				semTomador
+		}
+	}
+	return ""
+}

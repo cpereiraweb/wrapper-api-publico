@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Regenera internal/tabelas/municipios_provedor.tsv a partir do fonte do ACBr.
 
-A tabela mapeia código IBGE -> (provedor de NFS-e, versão do layout) e sai do
-ACBrNFSeXServicos.ini, a MESMA tabela que é compilada dentro da `.so`. Ela
+A tabela mapeia código IBGE -> (provedor de NFS-e, versão do layout, API
+própria) e sai do ACBrNFSeXServicos.ini, a MESMA tabela que é compilada dentro da `.so`. Ela
 precisa andar em lockstep com a revisão pinada em ACBR_REV: município que muda
 de provedor no fonte e não muda aqui vira roteamento errado, silencioso.
 
@@ -15,8 +15,23 @@ reclassificaria provedores em produção sem ninguém olhar. Em vez disso o scri
 RECUSA emitir a tabela quando aparece provedor sem família, que é o que força a
 decisão humana no lugar certo.
 
+A quarta coluna marca os municípios em que a lib instancia a classe APIPropria
+do provedor. O gravador dessas classes descende do Padrão Nacional e gera DPS,
+então é ela, e não a família do provedor, que decide o layout de entrada. A
+regra é a de TGeralConfNFSe.SetCodigoMunicipio (ACBrNFSeXConfiguracoes.pas)
+somada ao ramo `if APIPropria` do GetProvider (ACBrNFSeXProviderManager.pas).
+
+A quinta coluna marca os municípios com URL própria de Distribuição DF-e
+(ProConsultarDFe ou HomConsultarDFe na seção do município). Neles a fila não é
+a do ADN, e sim a do sefin da prefeitura, com NSU próprio. É o que impede o
+município fixo da distribuição (SessaoNacional, no Go) de virar outra fila sem
+ninguém perceber.
+
 Uso:  make acbr-tabelas
-      python3 scripts/gerar-tabelas-nfse.py [caminho-do-ACBrNFSeXServicos.ini]
+      python3 scripts/gerar-tabelas-nfse.py [--conferir] [caminho-do-ACBrNFSeXServicos.ini]
+
+--conferir não escreve nada: compara com o que está versionado e falha se
+divergir.
 """
 import pathlib
 import re
@@ -25,11 +40,30 @@ import sys
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 INI_PADRAO = RAIZ / "acbr-source/acbr/Fontes/ACBrDFe/ACBrNFSeX/ACBrNFSeXServicos.ini"
 DESTINO = RAIZ / "internal/tabelas/municipios_provedor.tsv"
+NOTAS_TECNICAS = RAIZ / "internal/tabelas/notas_tecnicas.tsv"
 FAMILIAS = RAIZ / "internal/tabelas/provedor_familia.tsv"
 MUNICIPIOS = RAIZ / "internal/tabelas/municipios.tsv"
 PROVEDORES_PAS = RAIZ / "acbr-source/acbr/Fontes/ACBrDFe/ACBrNFSeX/Provedores"
+PROVIDER_MANAGER = (RAIZ / "acbr-source/acbr/Fontes/ACBrDFe/ACBrNFSeX/Base/Provedores"
+                    / "ACBrNFSeXProviderManager.pas")
 
 CODIGO_IBGE = re.compile(r"\d{7}")
+
+
+def notas_tecnicas(secoes):
+    """Linhas (provedor, ambiente, versão) das NTs ligadas no .ini.
+
+    É o que escolhe o leiaute dentro da lib, sem data e por ambiente. Vira arquivo
+    versionado para um bump não ligar uma NT sem ninguém decidir: o teste de
+    internal/nfse cobra a linha correspondente em notasTecnicas.
+    """
+    linhas = []
+    for nome, dados in secoes.items():
+        for chave, ambiente in (("ProVersaoNT", "producao"), ("HomVersaoNT", "homologacao")):
+            versao = dados.get(chave, "0")
+            if versao not in ("", "0"):
+                linhas.append((nome, ambiente, versao))
+    return sorted(linhas)
 
 
 def ler_ini(caminho):
@@ -51,8 +85,79 @@ def ler_ini(caminho):
     return secoes
 
 
-def tabela(secoes):
-    """[(codigo, provedor, versao)] dos municípios COM provedor configurado."""
+def provedores_com_api_propria(caminho):
+    """Provedores cujo ramo no GetProvider começa por `if APIPropria then`.
+
+    Só nesses o flag muda a classe instanciada. Nos outros, Params com
+    APIPropria: não tem efeito na escolha do gravador.
+    """
+    texto = caminho.read_text(encoding="latin-1")
+    return {m.lower() for m in re.findall(
+        r"\bpro(\w+):\s*begin\s*if\s+APIPropria\s+then", texto)}
+
+
+def secao(secoes, nome):
+    """A seção pelo nome, sem diferenciar caixa, como o TIniFile do ACBr.
+
+    Esperança do Sul declara Provedor=Abase e a seção é [ABase]; com busca
+    exata o município ficava sem os Params do provedor e sem a marca de API
+    própria, e a lib usa a API própria ali.
+    """
+    if nome in secoes:
+        return secoes[nome]
+    alvo = nome.lower()
+    return next((v for k, v in secoes.items() if k.lower() == alvo), None)
+
+
+def versao_resolvida(secoes, codigo, provedor):
+    """A versão que a lib usa, como em TGeralConfNFSe.SetCodigoMunicipio.
+
+    Com seção do provedor, a versão do município vence se existir, senão vale a
+    do provedor (default 1.00). Sem seção do provedor, a do município (default
+    1.00). "***" deixa a versão anterior da sessão, que daqui não se conhece:
+    devolve None.
+    """
+    municipio = secoes[codigo].get("Versao", "")
+    do_provedor_sec = secao(secoes, provedor)
+    if do_provedor_sec is not None:
+        do_provedor = do_provedor_sec.get("Versao", "1.00")
+        if do_provedor and municipio:
+            return None if municipio == "***" else municipio
+        return do_provedor
+    municipio = municipio or "1.00"
+    return None if municipio == "***" else municipio
+
+
+def api_propria(secoes, codigo, provedor):
+    """O FAPIPropria de TGeralConfNFSe.SetCodigoMunicipio.
+
+    Params do município, concatenado ao do provedor salvo quando o do município
+    tem "*"; APIPropria: presente; e só vale nas versões 1.00 e 1.01. A string
+    "APIPropria:" é procurada como a lib procura, por substring.
+    """
+    params = secoes[codigo].get("Params", "")
+    if "*" not in params:
+        params += (secao(secoes, provedor) or {}).get("Params", "")
+    if "APIPropria:" not in params:
+        return False
+    versao = versao_resolvida(secoes, codigo, provedor)
+    if versao is None:
+        raise ValueError(f"{codigo}: Versao=*** com APIPropria, a lib decide em tempo de execução")
+    return versao in ("1.00", "1.01")
+
+
+def dfe_propria(campos):
+    """A seção do município sobrepõe a URL da distribuição do provedor."""
+    return bool({"ProConsultarDFe", "HomConsultarDFe"} & set(campos))
+
+
+def tabela(secoes, com_ramo):
+    """[(codigo, provedor, versao, api_propria, dfe_propria)] dos municípios COM provedor.
+
+    api_propria só é marcado quando o provedor tem o ramo no GetProvider: é a
+    condição para a lib instanciar a classe APIPropria, cujo gravador descende
+    do Padrão Nacional e gera DPS.
+    """
     linhas = []
     for nome, campos in secoes.items():
         if not CODIGO_IBGE.fullmatch(nome):
@@ -60,8 +165,17 @@ def tabela(secoes):
         provedor = campos.get("Provedor", "")
         if not provedor:
             continue
-        linhas.append((nome, provedor, campos.get("Versao", "")))
+        propria = provedor.lower() in com_ramo and api_propria(secoes, nome, provedor)
+        linhas.append((nome, provedor, campos.get("Versao", ""), "1" if propria else "",
+                       "1" if dfe_propria(campos) else ""))
     return sorted(linhas)
+
+
+def sem_vazias_no_fim(linha):
+    linha = list(linha)
+    while len(linha) > 3 and not linha[-1]:
+        linha.pop()
+    return linha
 
 
 def coluna(caminho, indice=0):
@@ -88,12 +202,25 @@ def familia_sugerida(provedor):
 
 
 def main():
-    ini = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else INI_PADRAO
+    conferir = "--conferir" in sys.argv[1:]
+    args = [a for a in sys.argv[1:] if a != "--conferir"]
+    ini = pathlib.Path(args[0]) if args else INI_PADRAO
     if not ini.exists():
         print(f"{ini} não está aqui. Rode 'make acbr-fonte' e tente de novo.")
-        return 1
+        return 0 if conferir else 1
 
-    linhas = tabela(ler_ini(ini))
+    if not PROVIDER_MANAGER.exists():
+        print(f"{PROVIDER_MANAGER} não está aqui. Rode 'make acbr-fonte' e tente de novo.")
+        return 1
+    com_ramo = provedores_com_api_propria(PROVIDER_MANAGER)
+    if not com_ramo:
+        print(f"{PROVIDER_MANAGER} não rendeu nenhum ramo 'if APIPropria': formato mudou?")
+        return 1
+    try:
+        linhas = tabela(ler_ini(ini), com_ramo)
+    except ValueError as e:
+        print(e)
+        return 1
     if not linhas:
         print(f"{ini} não rendeu nenhum município com provedor: formato mudou?")
         return 1
@@ -102,11 +229,11 @@ def main():
     # r47859 para r48100 trouxe (o provedor NFOnline estreou em São Bento/PB), e
     # que TestProvedoresNFSeTemFamilia só pegaria depois do arquivo já gravado.
     conhecidas = {p.lower() for p in coluna(FAMILIAS)}
-    sem_familia = sorted({p for _, p, _ in linhas if p.lower() not in conhecidas})
+    sem_familia = sorted({l[1] for l in linhas if l[1].lower() not in conhecidas})
     if sem_familia:
         print("provedor sem família em internal/tabelas/provedor_familia.tsv:")
         for p in sem_familia:
-            quantos = sum(1 for _, prov, _ in linhas if prov == p)
+            quantos = sum(1 for l in linhas if l[1] == p)
             print(f"  {p} ({quantos} município(s))")
             if heranca := familia_sugerida(p):
                 print(f"      herança no fonte: {heranca}")
@@ -119,17 +246,37 @@ def main():
     # Gate 2: código que não existe na base do IBGE viraria linha órfã, sem
     # nome nem UF na resposta da API.
     ibge = coluna(MUNICIPIOS)
-    orfaos = sorted({c for c, _, _ in linhas if c not in ibge})
+    orfaos = sorted({l[0] for l in linhas if l[0] not in ibge})
     if orfaos:
         print(f"códigos ausentes de municipios.tsv: {', '.join(orfaos)}")
         return 1
 
+    notas = "".join("\t".join(linha) + "\n" for linha in notas_tecnicas(ler_ini(ini)))
+    if conferir and NOTAS_TECNICAS.read_text(encoding="utf-8") != notas:
+        print(f"{NOTAS_TECNICAS.relative_to(RAIZ)} desatualizado. Rode 'make acbr-tabelas'.")
+        return 1
+    if not conferir:
+        NOTAS_TECNICAS.write_text(notas, encoding="utf-8")
+
     antes = DESTINO.read_text(encoding="utf-8") if DESTINO.exists() else ""
-    novo = "\n".join(f"{c}\t{p}\t{v}" for c, p, v in linhas) + "\n"
+    # As colunas de marca só vão até a última marcada: as linhas sem marca ficam
+    # iguais às de antes das colunas existirem.
+    novo = "\n".join("\t".join(sem_vazias_no_fim(linha)) for linha in linhas) + "\n"
+    if conferir:
+        if antes != novo:
+            a, n = set(antes.split("\n")) - {""}, set(novo.split("\n")) - {""}
+            print(f"{DESTINO.relative_to(RAIZ)} desatualizado: {len(n - a)} a mais, {len(a - n)} a menos")
+            print("Rode 'make acbr-tabelas' e reveja o diff.")
+            return 1
+        print(f"{DESTINO.relative_to(RAIZ)} em dia com o fonte pinado")
+        return 0
     DESTINO.write_text(novo, encoding="utf-8")
 
     velhas, novas = set(antes.split("\n")) - {""}, set(novo.split("\n")) - {""}
-    print(f"{DESTINO.relative_to(RAIZ)}: {len(linhas)} municípios com provedor")
+    proprias = sum(1 for linha in linhas if linha[3])
+    dfe = sum(1 for linha in linhas if linha[4])
+    print(f"{DESTINO.relative_to(RAIZ)}: {len(linhas)} municípios com provedor,"
+          f" {proprias} com API própria, {dfe} com distribuição própria")
     if antes:
         print(f"  {len(novas - velhas)} linha(s) a mais, {len(velhas - novas)} a menos")
     return 0

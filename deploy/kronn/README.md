@@ -7,7 +7,8 @@ GHCR e implantada na Kronn pelo deploy hook. O caminho inteiro:
 push na main → ci.yml, uma execução só, em sequência:
   1. fmt, vet, testes, link cgo, govulncheck, lint, segredo   (em paralelo)
   2. job publicar (publicar.yml), só se TODOS passarem:
-       build → :<sha> → teste de fumaça → :latest → deploy hook
+       build → :teste-<sha> → fumaça → integração NFS-e → libs conferidas
+             → :<sha> → :latest → deploy hook
                                                         │
 Kronn (app nfe-api, Docker sem Swarm)  ◀──────────────┘
   docker pull ghcr.io/cpereiraweb/wrapper-api/api:latest
@@ -15,15 +16,17 @@ Kronn (app nfe-api, Docker sem Swarm)  ◀────────────�
   docker compose up -d --force-recreate --remove-orphans
 ```
 
-Commit reprovado em qualquer gate não gera imagem. E o `:latest` só anda
-depois de o teste de fumaça provar que a imagem sobe e que a lib nativa carrega
-nos cinco serviços: imagem que falhou ali nunca chega à Kronn, nem por um
-redeploy manual. Para republicar um commit, re-execute o CI dele.
+Commit reprovado em qualquer gate não gera imagem. Até passar por tudo, ela
+existe só como `:teste-<sha>`, que ninguém consome. O `:<sha>` e o `:latest` só
+andam depois de o teste de fumaça provar que a imagem sobe e que a lib nativa
+carrega nos quatro serviços, de a integração gerar o XML de cada provedor de
+NFS-e contra a lib da imagem e de as libs da imagem baterem com as do release:
+imagem que falhou ali nunca chega à Kronn, nem por um redeploy manual. Para republicar um commit, re-execute o CI dele.
 
 Cada deploy derruba e sobe os dois containers: são alguns segundos sem serviço
 (o worker carrega a lib e só então a API sobe). Uma transmissão em curso não é
-cortada: o `stop_grace_period` de 75s cobre os 60s que o shutdown espera por
-ela. Quem chegar nessa janela recebe erro do Traefik, sem o corpo JSON de erro
+cortada: o `stop_grace_period` de 120s cobre os 100s que o shutdown espera por
+ela (`ACBR_WORKER_TIMEOUT_SECONDS`, 90s por padrão, mais 10s de margem). Quem chegar nessa janela recebe erro do Traefik, sem o corpo JSON de erro
 da API, e pode repetir: a requisição não chegou ao serviço.
 
 ## Uma vez, no GitHub

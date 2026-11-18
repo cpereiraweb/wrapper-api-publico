@@ -24,7 +24,7 @@ import (
 var provedorFamiliaTSV string
 
 // Familia é a família de layout de um provedor de NFS-e. Determina a tradução
-// que aplicamos (entrada JSON → layout) e se já há suporte de emissão.
+// que aplicamos (entrada JSON → layout).
 type Familia string
 
 const (
@@ -54,10 +54,6 @@ func (f Familia) LayoutBase() string {
 	}
 }
 
-// Suportada indica se a emissão dessa família já funciona ponta a ponta hoje.
-// Por ora, só o Padrão Nacional.
-func (f Familia) Suportada() bool { return f == FamiliaPadraoNacional }
-
 var (
 	famOnce   sync.Once
 	famByProv map[string]Familia // chave: nome do provedor em minúsculas
@@ -85,6 +81,18 @@ func carregarFamilias() {
 func FamiliaDoProvedor(provedor string) Familia {
 	carregarFamilias()
 	return famByProv[strings.ToLower(strings.TrimSpace(provedor))]
+}
+
+// LayoutPorMunicipio é o layout de entrada que o município usa de fato. Em
+// geral é o da família do provedor, mas onde a lib usa a API própria do
+// provedor o gravador é o do Padrão Nacional, qualquer que seja a família: o
+// ISSNet é abrasf_v1_v2 e Brasília, no ISSNet, gera DPS. Rotear esses
+// municípios pela família mandava o INI do ABRASF para um gravador de DPS.
+func LayoutPorMunicipio(codigo string) string {
+	if APIPropriaNFSe(codigo) {
+		return "padrao_nacional"
+	}
+	return FamiliaPorMunicipio(codigo).LayoutBase()
 }
 
 // FamiliaPorMunicipio resolve a família de NFS-e de um município pelo código

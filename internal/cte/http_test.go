@@ -20,38 +20,38 @@ type libFake struct {
 
 	iniMontar, iniValidar, iniEvento string
 	xmlTransmitido                   string
-	tenantMontar, tenantTransmitir   acbr.TenantConfig
+	sessaoMontar, sessaoTransmitir   acbr.Sessao
 
 	resMontar, resValidar, resTransmitir, resEvento acbr.Result
 	errMontar, errValidar, errTransmitir            error
 }
 
-func (f *libFake) MontarXML(t acbr.TenantConfig, ini string) (acbr.Result, error) {
-	f.iniMontar, f.tenantMontar = ini, t
+func (f *libFake) MontarXML(t acbr.Sessao, ini string) (acbr.Result, error) {
+	f.iniMontar, f.sessaoMontar = ini, t
 	return f.resMontar, f.errMontar
 }
 
-func (f *libFake) ValidarRegras(_ acbr.TenantConfig, ini string) (acbr.Result, error) {
+func (f *libFake) ValidarRegras(_ acbr.Sessao, ini string) (acbr.Result, error) {
 	f.iniValidar = ini
 	return f.resValidar, f.errValidar
 }
 
-func (f *libFake) Transmitir(t acbr.TenantConfig, xml string) (acbr.Result, error) {
-	f.xmlTransmitido, f.tenantTransmitir = xml, t
+func (f *libFake) Transmitir(t acbr.Sessao, xml string) (acbr.Result, error) {
+	f.xmlTransmitido, f.sessaoTransmitir = xml, t
 	return f.resTransmitir, f.errTransmitir
 }
 
-func (f *libFake) Cancelar(_ acbr.TenantConfig, ini string) (acbr.Result, error) {
+func (f *libFake) Cancelar(_ acbr.Sessao, ini string) (acbr.Result, error) {
 	f.iniEvento = ini
 	return f.resEvento, nil
 }
 
-func (f *libFake) CartaCorrecao(_ acbr.TenantConfig, ini string) (acbr.Result, error) {
+func (f *libFake) CartaCorrecao(_ acbr.Sessao, ini string) (acbr.Result, error) {
 	f.iniEvento = ini
 	return f.resEvento, nil
 }
 
-func (f *libFake) EnviarEvento(_ acbr.TenantConfig, ini string) (acbr.Result, error) {
+func (f *libFake) EnviarEvento(_ acbr.Sessao, ini string) (acbr.Result, error) {
 	f.iniEvento = ini
 	return f.resEvento, nil
 }
@@ -121,8 +121,8 @@ func TestGerarNaoRecebeCertificado(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
-	if f.tenantMontar.PFXBase64 != "" || f.tenantMontar.SenhaPFX != "" {
-		t.Errorf("a geração montou tenant com certificado: %+v", f.tenantMontar)
+	if f.sessaoMontar.PFXBase64 != "" || f.sessaoMontar.SenhaPFX != "" {
+		t.Errorf("a geração montou sessao com certificado: %+v", f.sessaoMontar)
 	}
 
 	var resp RespostaXML
@@ -231,10 +231,10 @@ func TestTransmiteOXMLGerado(t *testing.T) {
 	if f.xmlTransmitido != xml {
 		t.Errorf("a lib recebeu XML diferente do enviado")
 	}
-	if f.tenantTransmitir.PFXBase64 == "" {
+	if f.sessaoTransmitir.PFXBase64 == "" {
 		t.Error("o certificado não chegou ao binding")
 	}
-	if got := f.tenantTransmitir.CNPJ; got != "12345678000190" {
+	if got := f.sessaoTransmitir.CNPJ; got != "12345678000190" {
 		t.Errorf("CNPJ da sessão = %q, quero o extraído da chave", got)
 	}
 
@@ -267,7 +267,7 @@ func TestAmbienteVemDoXMLNaoDoCliente(t *testing.T) {
 				"certificado": certValido(),
 			})
 			var ordinal string
-			for _, kv := range f.tenantTransmitir.Config {
+			for _, kv := range f.sessaoTransmitir.Config {
 				if kv.Key == "Ambiente" {
 					ordinal = kv.Value
 				}
@@ -373,6 +373,22 @@ func TestEventoCancelamentoMontaINIIndexado(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if resp.Status != "concluido" || resp.XMLEventoBase64 == "" {
 		t.Errorf("resposta = %+v", resp)
+	}
+}
+
+// O dhEvento informado com offset é um instante: a lib não converte, só carimba o
+// fuso da UF sobre o relógio.
+func TestEventoConverteDhEventoParaOFusoDaChave(t *testing.T) {
+	f := &libFake{resEvento: acbr.Result{Resposta: "[Evento]\ncStat=135\n"}}
+	post(t, muxDe(f), "/cte/eventos/cancelamento", map[string]any{
+		"chave":       chaveFixture,
+		"protocolo":   "135240000000001",
+		"certificado": certValido(),
+		"dhEvento":    "2026-11-06T15:00:00Z",
+		"evento":      map[string]any{"justificativa": "erro de digitacao no destinatario"},
+	})
+	if quero := "dhEvento=06/11/2026 12:00:00"; !strings.Contains(f.iniEvento, quero) {
+		t.Errorf("INI do evento não tem %q:\n%s", quero, f.iniEvento)
 	}
 }
 

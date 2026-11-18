@@ -6,6 +6,9 @@ boletos.
 
 **Nada é guardado no servidor.** Nem o XML, nem o certificado.
 
+O que mudou em cada versão, e o que fazer antes de atualizar, está no
+[CHANGELOG](CHANGELOG.md).
+
 > **English.** Stateless JSON REST API (Go) wrapping the native ACBrLib for
 > Brazilian fiscal documents. It generates, signs and transmits the XML, and
 > returns the authorized document. It stores nothing: your application owns the
@@ -58,6 +61,7 @@ services:
 
   fiscal-api:
     image: ghcr.io/4devsmart/wrapper-api/api:v1
+    stop_grace_period: 120s    # ver "Tempo de parada", em Subindo
     environment:
       API_TOKEN: ${FISCAL_API_TOKEN}
       ACBR_WORKERS: /run/wrapper/fiscal.sock
@@ -66,6 +70,7 @@ services:
   fiscal-worker:
     image: ghcr.io/4devsmart/wrapper-api/api:v1
     command: ["worker"]
+    stop_grace_period: 120s
     volumes: [fiscal-run:/run/wrapper]
 
 volumes: { fiscal-run: }
@@ -158,6 +163,22 @@ migrando para o Padrão Nacional. Essa tabela também vem da biblioteca, e
 
 ## Subindo
 
+> [!IMPORTANT]
+> **Tempo de parada: defina 120s na API e no worker.** Uma transmissão pode levar
+> até 90s, e o `docker stop` mata o container em 10s. Sem um prazo maior, um deploy
+> no meio de uma emissão corta a transmissão: a nota pode sair sem que a sua
+> aplicação receba a resposta. A imagem não tem como definir isso: o prazo é de
+> quem inicia o container, e vale com log ligado ou não.
+>
+> | Como você sobe | O que definir |
+> |---|---|
+> | `docker-compose.yml` deste repositório | Nada: já vem definido |
+> | Compose próprio | `stop_grace_period: 120s` |
+> | `docker run` | `--stop-timeout 120` |
+> | Kubernetes | `terminationGracePeriodSeconds: 120` |
+>
+> Se aumentar `ACBR_WORKER_TIMEOUT_SECONDS`, suba este prazo junto.
+
 ```bash
 git clone https://github.com/4devsmart/wrapper-api && cd wrapper-api
 cp .env.example .env            # defina API_TOKEN
@@ -185,11 +206,11 @@ requisição que atendia. O worker não publica porta, quem escuta é a API.
 docker network create wrapper
 docker volume create wrapper-run
 
-docker run -d --name wrapper-worker --network wrapper \
+docker run -d --name wrapper-worker --network wrapper --stop-timeout 120 \
   -v wrapper-run:/run/wrapper \
   ghcr.io/4devsmart/wrapper-api/api:latest worker
 
-docker run -d --name wrapper-api --network wrapper -p 8080:8080 \
+docker run -d --name wrapper-api --network wrapper --stop-timeout 120 -p 8080:8080 \
   -e API_TOKEN=troque-este-token \
   -e ACBR_WORKERS=/run/wrapper/fiscal.sock \
   -v wrapper-run:/run/wrapper \
@@ -327,6 +348,7 @@ Trate por `codigo`, nunca pela mensagem:
 | `regras_de_negocio` | 422 | a lib reprovou; nada foi transmitido | corrija |
 | `provedor_nao_suportado` | 422 | município sem provedor de NFS-e conhecido | não |
 | `operacao_nao_suportada` | 422 | o provedor não implementa esta operação | não |
+| `layout_divergente` | 500 | o XML gerado não é do layout do município; nada foi devolvido | não. reporte |
 | `grupo_incompativel` | 400 | grupo que não existe no tipo de documento pedido (ex.: `infCteComp` fora do CT-e Complementar) | corrija |
 | `limite_de_requisicoes` | 429 | passou de `API_RATE_PER_MIN`; veja `Retry-After` | sim, depois |
 | `desfecho_indeterminado` | 502 | **pode ter sido transmitido** | **não.** consulte |
@@ -342,6 +364,27 @@ depois de a SEFAZ autorizar.
 
 ---
 
+## Log por operação
+
+Além da linha `http`, cada chamada à NFS-e gera uma linha `nfse` em JSON, com por
+onde ela saiu e como terminou:
+
+```json
+{"msg":"nfse","operacao":"transmissao","http":422,"ms":812,"municipio":"5300108",
+ "sessao":"3304557","provedor":"PadraoNacional","layout":"padrao_nacional",
+ "motivo":"vigencia","ambiente":"producao","desfecho":"rejeitado","rejeicoes":["E0314"]}
+```
+
+- `municipio` é o do documento; `sessao` e `provedor` são o caminho efetivo.
+- `motivo` diz por que a rota é aquela: `tabela`, `vigencia`, `chave`,
+  `consulta-dps` ou `distribuicao`.
+- `desfecho` é o status da nota ou o código do erro. `desfecho_indeterminado` é o
+  que se procura depois de um timeout: a nota pode ter saído.
+
+A linha não leva CNPJ, CPF, chave, número da nota, XML nem a descrição da
+rejeição, só o código. Para ligar a linha a uma nota, cruze com o horário e o
+município no sistema que chamou a API.
+
 ## Antes de produção
 
 Leia **[docs/LIMITACOES.md](docs/LIMITACOES.md)**. O essencial:
@@ -355,7 +398,8 @@ Leia **[docs/LIMITACOES.md](docs/LIMITACOES.md)**. O essencial:
   transmissão, ainda antes de o documento sair;
 - **não paralelize a distribuição DF-e do mesmo CNPJ.** O cursor é seu;
 - **o envio à SEFAZ não é exercitado em CI**, porque exige um certificado A1
-  real. Transmita em homologação com o seu certificado antes de mudar `MODO`.
+  real. Transmita em homologação com o seu certificado antes de mudar `MODO`;
+- **dê 120s para o container encerrar**, como explica o aviso em [Subindo](#subindo).
 
 ---
 

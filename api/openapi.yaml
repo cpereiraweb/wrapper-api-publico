@@ -84,6 +84,7 @@ info:
     | `regras_de_negocio`: a biblioteca reprovou, nada foi transmitido | 422 | corrija |
     | `provedor_nao_suportado`: município sem provedor de NFS-e | 422 | não |
     | `operacao_nao_suportada`: o provedor não implementa | 422 | não |
+    | `layout_divergente`: o XML gerado não é do layout do município | 500 | não. reporte |
     | `grupo_incompativel`: grupo que não existe no tipo de documento pedido | 400 | corrija |
     | `limite_de_requisicoes`: passou do teto por endereço | 429 | sim, veja `Retry-After` |
     | `desfecho_indeterminado`: **pode ter sido transmitido** | 502 | **não.** consulte |
@@ -912,6 +913,12 @@ paths:
         provedor decide o layout. Município sem provedor conhecido é recusado
         **antes** de montar.
 
+        Onde o provedor atende pela própria API no leiaute nacional (Brasília e
+        Goiânia no ISSNet, Campo Grande no DSF, e outros ~600), o layout é
+        `padrao_nacional`, embora o provedor seja ABRASF em outras cidades. Se o
+        XML montado não for do layout do município, a resposta é 500
+        `layout_divergente` e o XML não é devolvido.
+
         Devolve `id_dps`, não `chave`: a chave de acesso só existe depois da
         autorização, enquanto o identificador da DPS é determinístico. É ele que
         recupera a transmissão perdida.
@@ -942,6 +949,10 @@ paths:
         processando e o protocolo, e a nota ainda não existe. O desfecho sai de
         POST /v1/nfse/transmissao/lote, com esse protocolo. Não reenvie a DPS
         enquanto o lote não tiver desfecho.
+
+        Na nota autorizada, chave vem também quando o provedor não a devolve
+        na resposta (o ISSNet de Brasília no leiaute nacional é um caso): ela é
+        lida do XML da NFS-e. Nada muda quando o provedor já a devolve.
       requestBody:
         required: true
         content:
@@ -978,6 +989,9 @@ paths:
 
         Situação 4 sem nota e provedor que não informa a situação voltam como
         erro (502): não há o que gravar.
+
+        Na autorização, chave vem quando o XML devolvido é de NFS-e do Padrão
+        Nacional; nos demais leiautes ela não vem.
       requestBody:
         required: true
         content:
@@ -1078,23 +1092,36 @@ paths:
   /v1/nfse/distribuicao:
     post:
       tags: [nfse]
-      summary: Distribuição DF-e do ADN por NSU
+      summary: Distribuição DF-e por NSU
       description: |
+        `municipio` é opcional. Informado, a distribuição sai pelo provedor
+        dele, como antes. Quando a biblioteca fiscal não implementa a
+        distribuição para esse provedor (ABRASF, próprio e parte das APIs
+        próprias), ou quando o campo não vem, ela sai pelo ADN (Ambiente de
+        Dados Nacional), que autentica pelo certificado e não recebe
+        `credenciais` de prefeitura.
+
+        Nem toda fila é a do ADN: nos municípios Infisc do RS (Caxias do Sul,
+        Canoas e outros) ela é a do sefin da prefeitura, com numeração própria.
+        Um `nsu` só vale na fila de onde veio, por isso mande sempre o mesmo
+        `municipio`, ou sempre nenhum, para o mesmo cursor.
+
         O cursor (`nsu`) vai e volta no payload: sem estado, é você que guarda
         onde parou. **Não paralelize a distribuição do mesmo CNPJ**, sem o lock
         que existia com banco, chamadas simultâneas embaralham o cursor.
+
+        Na fila do ADN a consulta leva o `emitente.cnpj` como `cnpjConsulta`,
+        que o ADN exige. Sem ele o ADN rejeita sem dizer o motivo, e essa
+        rejeição volta como 502 `distribuicao_rejeitada`, com a resposta crua
+        em `detalhes`, e não como 200 sem documentos.
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              allOf:
-                - $ref: "#/components/schemas/PedidoConsultaNFSe"
-                - type: object
-                  properties:
-                    nsu: { type: integer, description: "NSU a partir do qual buscar. 0 traz o início da fila do ADN." }
+            schema: { $ref: "#/components/schemas/PedidoDistribuicaoNFSe" }
       responses:
         "200": { $ref: "#/components/responses/RespostaCrua" }
+        "502": { $ref: "#/components/responses/Erro502" }
 
   /v1/nfse/eventos/cancelamento:
     post:
@@ -1121,6 +1148,20 @@ paths:
         resposta é 422 operacao_nao_suportada, e os detalhes trazem o que aquele
         provedor de fato expõe. O limite, nesse caso, é da biblioteca fiscal
         desta integração, não da prefeitura.
+
+        O retorno traz o grupo nfse com a identificação da nota cancelada
+        (chave, numero, codigo_verificacao e, se informados no pedido,
+        numero_rps e serie_rps). Ele vem também quando o evento é recusado,
+        para que se saiba de qual nota a prefeitura está falando. No Padrão
+        Nacional o número sai da chave quando o pedido não o informa. O grupo é
+        acréscimo: os campos de primeiro nível continuam iguais.
+
+        Quando a recusa é porque a nota já estava cancelada (EM097 no Padrão
+        Nacional, "Nota fiscal já cancelada" e variações nos demais), o retorno
+        traz nfse_ja_cancelada: true. O status continua rejeitado e o HTTP
+        continua 422, como antes: o campo só diz que o desfecho pretendido já
+        existe, e pode ser tratado como sucesso por quem quiser. Em qualquer
+        outro caso o campo não vem.
 
         Chamada única: a lib não expõe o XML do evento antes de enviá-lo. A
         recuperação é consultar o documento: a chave dele você já tem.
@@ -1163,6 +1204,14 @@ paths:
         Nos provedores ABRASF e próprios que oferecem o webservice, a nota antiga
         é identificada por evento.substituida.numero. Nem todos oferecem: quando
         não, a resposta é 422 operacao_nao_suportada com o que o provedor expõe.
+
+        O retorno identifica as duas notas em grupos separados: nfse é a
+        substituída, e substituta é a nota nova (chave, numero,
+        codigo_verificacao, id_dps, numero_rps e serie_rps). A substituta só vem
+        quando a substituição foi aceita ou ficou em processamento: numa recusa
+        não há nota nova. Os grupos são acréscimo: o chave de primeiro nível
+        continua sendo o da nota nova. Quando a biblioteca não o informa, ele
+        passa a vir com a chave lida do XML da nota nova, igual à transmissão.
 
         Chamada única: a lib não expõe o XML do evento antes de enviá-lo. A
         recuperação é consultar o documento: a chave dele você já tem.
@@ -1255,7 +1304,7 @@ paths:
                 properties:
                   codigo: { type: string, description: "Código IBGE do município consultado." }
                   provedor: { type: string, description: "Provedor que atende o município. Vazio quando não há provedor conhecido." }
-                  layout: { type: string, enum: [padrao_nacional, abrasf, proprio, ""], description: "Família de layout do provedor. Vazia quando o município não tem provedor." }
+                  layout: { type: string, enum: [padrao_nacional, abrasf, proprio, ""], description: "Layout de entrada do município. Em geral é a família do provedor; é padrao_nacional onde o provedor atende pela própria API no leiaute nacional (Brasília, no ISSNet). Vazio quando o município não tem provedor." }
                   suportado: { type: boolean, description: "true quando o município tem provedor conhecido e a emissão é possível." }
                   capacidades:
                     type: object
@@ -1451,7 +1500,7 @@ components:
           description: identificador determinístico da DPS; use em /consulta-dps
         xml_b64: { type: string, format: byte , description: "A DPS montada, em base64." }
         assinado: { type: boolean, description: "Sempre false. Na NFS-e quem assina é o provedor, no envio." }
-        layout: { type: string, enum: [padrao_nacional, abrasf, proprio], description: "Família de layout resolvida pelo município." }
+        layout: { type: string, enum: [padrao_nacional, abrasf, proprio], description: "Layout resolvido pelo município. O XML devolvido é sempre deste layout." }
         provedor: { type: string, description: "Provedor de NFS-e do município. Quem o decide é o município, não o pedido." }
         validacao: { $ref: "#/components/schemas/Validacao" }
 
@@ -1514,7 +1563,7 @@ components:
       description: "Retorno da transmissão da DPS, com a nota autorizada."
       properties:
         numero: { type: string , description: "Número da NFS-e atribuído pelo provedor." }
-        chave: { type: string , description: "Chave de acesso da NFS-e." }
+        chave: { type: string , description: "Chave de acesso da NFS-e. Vem a que a biblioteca informou; quando ela não informa e a nota foi autorizada, vem a do Id do infNFSe no XML (50 dígitos, Padrão Nacional). No ABRASF costuma ser o link da nota, e pode não vir." }
         codigo_verificacao: { type: string , description: "Código de verificação da nota, usado na consulta pública." }
         protocolo: { type: string , description: "Protocolo do provedor." }
         status: { type: string, enum: [autorizado, processando, rejeitado, erro] , description: "Desfecho: autorizado, processando (lote assíncrono ainda sem decisão), rejeitado ou erro." }
@@ -1583,6 +1632,7 @@ components:
         tipo: { type: string , description: "Tipo do evento enviado." }
         chave: { type: string , description: "Chave da nota." }
         status: { type: string , description: "Desfecho do evento." }
+        situacao: { type: string , description: "Situação da nota no provedor, quando ele a informa." }
         protocolo: { type: string , description: "Protocolo do provedor." }
         data_hora: { type: string , description: "Data e hora do processamento." }
         xml_b64: { type: string, format: byte , description: "XML do evento, em base64." }
@@ -1590,6 +1640,30 @@ components:
           description: 'Mensagens do provedor.'
           type: array
           items: { $ref: "#/components/schemas/Mensagem" }
+        alertas:
+          description: 'Alertas do provedor. Não impedem o evento.'
+          type: array
+          items: { $ref: "#/components/schemas/Mensagem" }
+        nfse:
+          description: 'A nota que o evento atingiu: a cancelada ou a substituída. Vem também na recusa. Acréscimo: os campos de primeiro nível não mudam.'
+          allOf: [{ $ref: "#/components/schemas/NotaDoEvento" }]
+        substituta:
+          description: 'A nota que nasceu da substituição. Só vem na substituição aceita ou em processamento.'
+          allOf: [{ $ref: "#/components/schemas/NotaDoEvento" }]
+        nfse_ja_cancelada:
+          type: boolean
+          description: 'Só no cancelamento recusado porque a nota já estava cancelada, e então sempre true. O status continua rejeitado. Fora desse caso o campo não vem.'
+
+    NotaDoEvento:
+      type: object
+      description: "Identificação de uma NFS-e envolvida num evento, com os mesmos campos em qualquer provedor. Cada campo sai do pedido, da chave de acesso ou do XML devolvido; o que não tem de onde sair não vem."
+      properties:
+        chave: { type: string , description: "Chave de acesso, 50 dígitos no Padrão Nacional. No ABRASF é o link da nota, quando o provedor manda um." }
+        numero: { type: string , description: "Número da NFS-e atribuído pelo provedor. No Padrão Nacional sai da chave quando o pedido não o informa." }
+        codigo_verificacao: { type: string , description: "Código de verificação da NFS-e, nos provedores que o usam." }
+        id_dps: { type: string , description: "Identificador da DPS, com o prefixo DPS, no Padrão Nacional." }
+        numero_rps: { type: string , description: "Número do RPS (nDPS) que originou a nota." }
+        serie_rps: { type: string , description: "Série do RPS que originou a nota." }
 
     PedidoConsultaChave:
       type: object
@@ -1607,6 +1681,18 @@ components:
       properties:
         chave: { type: string , description: "Chave da nota, ou o id_dps na consulta de DPS." }
         municipio: { type: string , description: "Código IBGE do município, 7 dígitos." }
+        ambiente: { $ref: "#/components/schemas/Ambiente" }
+        emitente: { $ref: "#/components/schemas/Emitente" }
+        certificado: { $ref: "#/components/schemas/Certificado" }
+        credenciais: { $ref: "#/components/schemas/Credenciais" }
+
+    PedidoDistribuicaoNFSe:
+      type: object
+      description: "Distribuição DF-e de NFS-e. Sem município, ou com um cujo provedor não implementa a distribuição, a consulta vai ao ADN."
+      required: [certificado]
+      properties:
+        nsu: { type: integer, description: "NSU a partir do qual buscar. 0 traz o início da fila." }
+        municipio: { type: string, description: "Código IBGE do município, 7 dígitos. Opcional." }
         ambiente: { $ref: "#/components/schemas/Ambiente" }
         emitente: { $ref: "#/components/schemas/Emitente" }
         certificado: { $ref: "#/components/schemas/Certificado" }
@@ -5776,6 +5862,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/NfsePrestador"
         toma:
+          description: 'tomador; omitido = consumidor não identificado. No Padrão Nacional exige xNome e CPF, CNPJ ou NIF.'
           allOf:
             - $ref: "#/components/schemas/NfseTomador"
         interm:
@@ -6559,7 +6646,7 @@ components:
           description: 'item da lista (→ cTribNac no Padrão Nacional).'
         cTribMun:
           type: string
-          description: 'código de tributação municipal.'
+          description: 'código de tributação municipal. Exatamente 3 dígitos, quando informado, na emissão pelo Ambiente Nacional. Obrigatório e numérico nos municípios do ISSNet pela API própria (Brasília, Goiânia).'
         cNBS:
           type: string
           description: 'código NBS.'
@@ -7188,7 +7275,7 @@ components:
                 `ambiente_invalido`, `ambiente_divergente`,
                 `modal_nao_suportado`, `grupo_incompativel`, `limite_de_requisicoes`,
                 `regras_de_negocio`,
-                `provedor_nao_suportado`, `operacao_nao_suportada`,
+                `provedor_nao_suportado`, `operacao_nao_suportada`, `layout_divergente`,
                 `desfecho_indeterminado`, `lib_indisponivel`, `falha_na_lib`.
             mensagem:
               type: string

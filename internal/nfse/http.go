@@ -12,6 +12,7 @@ import (
 	"github.com/4devsmart/wrapper-api/internal/fiscal"
 	"github.com/4devsmart/wrapper-api/internal/modulo"
 	"github.com/4devsmart/wrapper-api/internal/platform/httpx"
+	"github.com/4devsmart/wrapper-api/internal/tabelas"
 )
 
 // secaoACBr é a seção de configuração deste documento na ACBrLib.
@@ -38,21 +39,21 @@ func (m *Modulo) Capacidades() []string {
 
 func (m *Modulo) Registrar(r modulo.Router) {
 	// Gerar: monta o XML da DPS. Sem certificado, sem rede.
-	r.HandleFunc("POST /xml", m.handleXML)
+	r.HandleFunc("POST /xml", operacao("xml", m.handleXML))
 	// Transmitir: assina e envia. É aqui que o certificado entra.
-	r.HandleFunc("POST /transmissao", m.handleTransmissao)
+	r.HandleFunc("POST /transmissao", operacao("transmissao", m.handleTransmissao))
 	// Desfecho de um lote assíncrono, pelo protocolo que a transmissão devolveu.
-	r.HandleFunc("POST /transmissao/lote", m.handleLote)
+	r.HandleFunc("POST /transmissao/lote", operacao("lote", m.handleLote))
 	// Eventos (cancelamento e substituição): chamada única.
-	r.HandleFunc("POST /eventos/{tipo}", m.handleEvento)
+	r.HandleFunc("POST /eventos/{tipo}", operacao("evento", m.handleEvento))
 	// Consultas ao provedor: POST porque levam o certificado no corpo.
-	r.HandleFunc("POST /consulta", m.handleConsulta)
-	r.HandleFunc("POST /consulta-dps", m.handleConsultaDPS)
-	r.HandleFunc("POST /consultas/{tipo}", m.handleConsultas)
-	r.HandleFunc("POST /distribuicao", m.handleDistribuicao)
+	r.HandleFunc("POST /consulta", operacao("consulta", m.handleConsulta))
+	r.HandleFunc("POST /consulta-dps", operacao("consulta-dps", m.handleConsultaDPS))
+	r.HandleFunc("POST /consultas/{tipo}", operacao("consultas", m.handleConsultas))
+	r.HandleFunc("POST /distribuicao", operacao("distribuicao", m.handleDistribuicao))
 	// PDF: a NFS-e recupera o DANFSE pela CHAVE (ObterDANFSE), diferente de CT-e
 	// e MDF-e: perder o XML aqui não é definitivo. Também aceita XML.
-	r.HandleFunc("POST /pdf", m.handlePDF)
+	r.HandleFunc("POST /pdf", operacao("pdf", m.handlePDF))
 	// Tabela de municípios: pública quanto a segredo (não leva certificado) e é
 	// como o cliente descobre, ANTES de emitir, se o município é atendido.
 	r.HandleFunc("GET /municipios/{codigo}", m.handleMunicipio)
@@ -86,15 +87,22 @@ func (m *Modulo) handleXML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cmun := MunicipioDoPedido(p)
-	layout, ok := m.layout(w, cmun)
+	rota, ok := m.rota(w, cmun)
 	if !ok {
 		return
 	}
 	if !fiscal.AmbienteDoPedido(w, &p.Ambiente, 0, "") {
 		return
 	}
+	if msg := ValidarDPSDoMunicipio(cmun, p); msg != "" {
+		httpx.ErroJSON(w, http.StatusBadRequest, "campo_obrigatorio", msg)
+		return
+	}
+	rota = rota.DaEmissao(p)
+	registrarRota(w, rota, p.Ambiente)
+	layout := rota.Layout
 
-	t := m.tenant(cnpj, cmun, p.InfDPS.Prest.Pessoa, p.Ambiente, layout, fiscal.Certificado{}, Credenciais{})
+	t := m.sessao(cnpj, rota.Sessao, p.InfDPS.Prest.Pessoa, p.Ambiente, fiscal.Certificado{}, Credenciais{})
 	xml, val, res, err := fiscal.Montar(m.svc, t, ToINIDoLayout(layout, p))
 	if err != nil {
 		m.responderErro(w, res, err)
@@ -105,6 +113,16 @@ func (m *Modulo) handleXML(w http.ResponseWriter, r *http.Request) {
 			"a lib não produziu XML a partir do pedido", map[string]any{"resposta": res.Resposta})
 		return
 	}
+	if raiz, _ := RaizDoXML(xml); !LayoutConfere(layout, raiz) {
+		slog.Error("nfse: XML gerado fora do layout do município",
+			"municipio", cmun, "provedor", rota.Provedor(),
+			"layout", layout, "raiz", raiz.Nome, "namespace", raiz.Namespace)
+		httpx.ErroDetalhado(w, http.StatusInternalServerError, "layout_divergente",
+			"o XML gerado não é do layout do município; nada foi devolvido para não ser transmitido",
+			map[string]any{"municipio": cmun, "provedor": rota.Provedor(),
+				"layout": layout, "raiz": raiz})
+		return
+	}
 	httpx.JSON(w, http.StatusOK, RespostaXML{
 		IDdps:     IDdoXML(xml),
 		XMLBase64: fiscal.Base64(xml),
@@ -113,7 +131,7 @@ func (m *Modulo) handleXML(w http.ResponseWriter, r *http.Request) {
 		// o cliente arquive isto achando que é documento assinado.
 		Assinado: false,
 		Layout:   string(layout),
-		Provedor: provedorDoMunicipio(cmun),
+		Provedor: rota.Provedor(),
 		// Validacao.Suportada virá false: o ACBrNFSeX não exporta validação de
 		// regras de negócio (CT-e e MDF-e exportam). Fingir "ok" seria mentir
 		// sobre a garantia que o cliente tem em mãos.
@@ -189,7 +207,7 @@ func (m *Modulo) handleTransmissao(w http.ResponseWriter, r *http.Request) {
 		httpx.ErroJSON(w, http.StatusBadRequest, "certificado_invalido", err.Error())
 		return
 	}
-	layout, ok := m.layout(w, p.Municipio)
+	rota, ok := m.rota(w, p.Municipio)
 	if !ok {
 		return
 	}
@@ -198,25 +216,28 @@ func (m *Modulo) handleTransmissao(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ambiente := fiscal.Primeiro(fiscal.AmbienteDoXML(xml), p.Ambiente)
-	t := m.tenantEmitente(p.Emitente, p.Municipio, ambiente, layout, p.Certificado, p.Credenciais)
+	rota = rota.DaDPSPronta(xml)
+	registrarRota(w, rota, ambiente)
+	t := m.sessaoDoEmitente(p.Emitente, rota.Sessao, ambiente, p.Certificado, p.Credenciais)
 
 	res, err := m.svc.Transmitir(t, xml)
 	if err != nil {
 		m.responderErro(w, res, err)
 		return
 	}
-	if m.naoSuportada(w, t, p.Municipio, res.Resposta, "emissão") {
+	if m.naoSuportada(w, t, rota.Sessao, res.Resposta, "emissão") {
 		return
 	}
 
 	e := ParseEnvio(res.Resposta)
 	resp := RespostaTransmissao{
-		Numero: e.Numero, Chave: e.Chave, CodigoVerificacao: e.CodigoVerificacao,
+		Numero: e.Numero, Chave: chaveDaEmissao(e, res.XML), CodigoVerificacao: e.CodigoVerificacao,
 		Protocolo: e.Protocolo, Situacao: e.Situacao,
 		Status:    statusEmissao(e),
 		XMLBase64: fiscal.Base64(res.XML),
 		Erros:     e.Erros, Alertas: e.Alertas,
 	}
+	registrarDesfecho(w, resp.Status, e.Erros)
 	httpx.JSON(w, fiscal.StatusDoDesfecho(resp.Status), resp)
 }
 
@@ -268,7 +289,9 @@ func (m *Modulo) handleLote(w http.ResponseWriter, r *http.Request) {
 	}
 	if resp.Status == "autorizado" {
 		resp.XMLBase64 = fiscal.Base64(res.XML)
+		resp.Chave = ChaveDoXML(res.XML)
 	}
+	registrarDesfecho(w, resp.Status, l.Erros)
 	httpx.JSON(w, fiscal.StatusDoDesfecho(resp.Status), resp)
 }
 
@@ -296,6 +319,15 @@ type RespostaEvento struct {
 	XMLBase64 string     `json:"xml_b64,omitempty"`
 	Erros     []Mensagem `json:"mensagens,omitempty"`
 	Alertas   []Mensagem `json:"alertas,omitempty"`
+	// NFSe é a nota que o evento atingiu: a cancelada ou a substituída.
+	NFSe *NotaDoEvento `json:"nfse,omitempty"`
+	// Substituta é a nota que nasceu da substituição. Só vem nela, e só quando o
+	// provedor a aceitou.
+	Substituta *NotaDoEvento `json:"substituta,omitempty"`
+	// NFSeJaCancelada marca o cancelamento recusado porque a nota já estava
+	// cancelada. O status continua rejeitado, como sempre foi: o campo só diz
+	// que o desfecho que o cliente queria já existe.
+	NFSeJaCancelada bool `json:"nfse_ja_cancelada,omitempty"`
 }
 
 func (m *Modulo) handleEvento(w http.ResponseWriter, r *http.Request) {
@@ -313,15 +345,19 @@ func (m *Modulo) handleEvento(w http.ResponseWriter, r *http.Request) {
 		httpx.ErroJSON(w, http.StatusBadRequest, "certificado_invalido", err.Error())
 		return
 	}
-	layout, ok := m.layout(w, p.Municipio)
+	rota, ok := m.rota(w, p.Municipio)
 	if !ok {
 		return
 	}
 	if !fiscal.AmbienteDoPedido(w, &p.Ambiente, 0, "") {
 		return
 	}
-	t := m.tenantEmitente(p.Emitente, p.Municipio, p.Ambiente,
-		layout, p.Certificado, p.Credenciais)
+	rota = rota.DoEvento(tipo, p)
+	registrarRota(w, rota, p.Ambiente)
+	layout := rota.Layout
+	p.Municipio = rota.Sessao
+	t := m.sessaoDoEmitente(p.Emitente, p.Municipio, p.Ambiente,
+		p.Certificado, p.Credenciais)
 
 	if tipo == "substituicao" {
 		m.substituir(w, t, layout, p)
@@ -343,7 +379,7 @@ func (m *Modulo) handleEvento(w http.ResponseWriter, r *http.Request) {
 // nesse campo é o link da nota, quando o provedor manda um, e o CancelaNFSe
 // localiza a nota pelo número. Exigir a chave ali recusava o cancelamento de
 // nota GISS autorizada sem link, com o número em mãos.
-func (m *Modulo) cancelar(w http.ResponseWriter, t acbr.TenantConfig, layout Layout, p PedidoEvento) {
+func (m *Modulo) cancelar(w http.ResponseWriter, t acbr.Sessao, layout Layout, p PedidoEvento) {
 	if layout == LayoutPadraoNacional && strings.TrimSpace(p.Chave) == "" {
 		httpx.ErroJSON(w, http.StatusBadRequest, "campo_obrigatorio", "chave da NFS-e é obrigatória")
 		return
@@ -382,11 +418,15 @@ func (m *Modulo) cancelar(w http.ResponseWriter, t acbr.TenantConfig, layout Lay
 	if c.Sucesso && strings.HasPrefix(c.XmlRetorno, "<") {
 		xmlDoEvento = c.XmlRetorno
 	}
-	httpx.JSON(w, fiscal.StatusDoEvento(StatusCancelamento(c)), RespostaEvento{
-		Tipo: "cancelamento", Chave: p.Chave, Status: StatusCancelamento(c),
+	status := StatusCancelamento(c)
+	registrarDesfecho(w, status, c.Erros)
+	httpx.JSON(w, fiscal.StatusDoEvento(status), RespostaEvento{
+		Tipo: "cancelamento", Chave: p.Chave, Status: status,
 		Protocolo: c.Protocolo, DataHora: c.DataHora,
 		XMLBase64: fiscal.Base64(xmlDoEvento),
 		Erros:     c.Erros, Alertas: c.Alertas,
+		NFSe:            notaCancelada(p.Chave, e),
+		NFSeJaCancelada: status == "rejeitado" && JaCancelada(c.Erros),
 	})
 }
 
@@ -395,7 +435,7 @@ func (m *Modulo) cancelar(w http.ResponseWriter, t acbr.TenantConfig, layout Lay
 // A validação do motivo é local de propósito: xMotivo é obrigatório e tem
 // mínimo de 15 caracteres no schema do evento, e o ADN recusa por schema sem
 // dizer qual campo faltou.
-func (m *Modulo) cancelarPorEvento(w http.ResponseWriter, t acbr.TenantConfig,
+func (m *Modulo) cancelarPorEvento(w http.ResponseWriter, t acbr.Sessao,
 	p PedidoEvento, e CancelamentoPedido) {
 
 	if msg := ValidarCancelamentoPN(e); msg != "" {
@@ -417,11 +457,15 @@ func (m *Modulo) cancelarPorEvento(w http.ResponseWriter, t acbr.TenantConfig,
 		return
 	}
 	ev := ParseEvento(res.Resposta)
-	httpx.JSON(w, fiscal.StatusDoEvento(StatusEvento(ev)), RespostaEvento{
-		Tipo: "cancelamento", Chave: p.Chave, Status: StatusEvento(ev),
+	status := StatusEvento(ev)
+	registrarDesfecho(w, status, ev.Erros)
+	httpx.JSON(w, fiscal.StatusDoEvento(status), RespostaEvento{
+		Tipo: "cancelamento", Chave: p.Chave, Status: status,
 		Situacao:  ev.Situacao,
 		XMLBase64: fiscal.Base64(fiscal.Primeiro(res.XML, ev.XML)),
 		Erros:     ev.Erros, Alertas: ev.Alertas,
+		NFSe:            notaCancelada(p.Chave, e),
+		NFSeJaCancelada: status == "rejeitado" && JaCancelada(ev.Erros),
 	})
 }
 
@@ -431,7 +475,7 @@ func (m *Modulo) cancelarPorEvento(w http.ResponseWriter, t acbr.TenantConfig,
 // de substituição: a nota nova carrega o grupo subst apontando a chave da
 // antiga, e é a emissão dela que substitui. Os demais provedores usam o
 // SubstituiNFSe, que identifica a antiga por número.
-func (m *Modulo) substituir(w http.ResponseWriter, t acbr.TenantConfig, layout Layout, p PedidoEvento) {
+func (m *Modulo) substituir(w http.ResponseWriter, t acbr.Sessao, layout Layout, p PedidoEvento) {
 	var e SubstituicaoPedido
 	if msg := fiscal.DecodarAninhado("evento", p.Evento, &e); msg != "" {
 		httpx.ErroJSON(w, http.StatusBadRequest, "pedido_invalido", msg)
@@ -464,17 +508,23 @@ func (m *Modulo) substituir(w http.ResponseWriter, t acbr.TenantConfig, layout L
 	if m.naoSuportada(w, t, p.Municipio, res.Resposta, "substituição") {
 		return
 	}
-	m.responderSubstituicao(w, res)
+	m.responderSubstituicao(w, res, e)
 }
 
 // substituirPorDPS é a substituição do Padrão Nacional: emitir a DPS nova com o
 // grupo subst. A chamada é a MESMA da emissão, e a resposta também: o que
 // identifica a substituição é o grupo dentro do documento.
-func (m *Modulo) substituirPorDPS(w http.ResponseWriter, t acbr.TenantConfig,
+func (m *Modulo) substituirPorDPS(w http.ResponseWriter, t acbr.Sessao,
 	cmun string, e SubstituicaoPedido) {
 
 	if msg := ValidarSubstituicaoPN(e); msg != "" {
 		httpx.ErroJSON(w, http.StatusBadRequest, "pedido_invalido", msg)
+		return
+	}
+	// cmun é o da sessão, que pode ser o do Ambiente Nacional. A validação olha o
+	// município da nota nova, que é quem tem regra.
+	if msg := ValidarDPSDoMunicipio(fiscal.Primeiro(MunicipioDoPedido(e.DPS), cmun), e.DPS); msg != "" {
+		httpx.ErroJSON(w, http.StatusBadRequest, "campo_obrigatorio", msg)
 		return
 	}
 	res, err := m.svc.Emitir(t, ToINISubstituicaoPN(e))
@@ -485,16 +535,19 @@ func (m *Modulo) substituirPorDPS(w http.ResponseWriter, t acbr.TenantConfig,
 	if m.naoSuportada(w, t, cmun, res.Resposta, "substituição") {
 		return
 	}
-	m.responderSubstituicao(w, res)
+	m.responderSubstituicao(w, res, e)
 }
 
-func (m *Modulo) responderSubstituicao(w http.ResponseWriter, res acbr.Result) {
+func (m *Modulo) responderSubstituicao(w http.ResponseWriter, res acbr.Result, e SubstituicaoPedido) {
 	em := ParseEnvio(res.Resposta)
+	registrarDesfecho(w, statusEmissao(em), em.Erros)
 	httpx.JSON(w, fiscal.StatusDoDesfecho(statusEmissao(em)), RespostaEvento{
-		Tipo: "substituicao", Chave: em.Chave, Status: statusEmissao(em),
+		Tipo: "substituicao", Chave: chaveDaEmissao(em, res.XML), Status: statusEmissao(em),
 		Situacao:  em.Situacao,
 		Protocolo: em.Protocolo, XMLBase64: fiscal.Base64(res.XML),
 		Erros: em.Erros, Alertas: em.Alertas,
+		NFSe:       notaSubstituida(e.Substituida),
+		Substituta: notaSubstituta(em, res.XML, e.DPS),
 	})
 }
 
@@ -549,6 +602,19 @@ func (m *Modulo) handleConsultaDPS(w http.ResponseWriter, r *http.Request) {
 			"chave (o id_dps devolvido ao gerar) é obrigatória")
 		return
 	}
+	// Só a NFS-e encontrada encerra a busca. Não achar, ou falhar, passa para a
+	// sessão seguinte, onde a nota também pode estar, e a última responde o que
+	// tiver.
+	rota, _ := RotaDoMunicipio(p.Municipio)
+	rotas := rota.RotasDaConsultaDPS()
+	for _, rt := range rotas[:len(rotas)-1] {
+		tn := m.sessaoDoEmitente(p.Emitente, rt.Sessao, p.Ambiente, p.Certificado, p.Credenciais)
+		if res, err := m.svc.ConsultarDPSPorChave(tn, chave); err == nil && reChaveNaResposta.MatchString(res.Resposta) {
+			registrarRota(w, rt, p.Ambiente)
+			m.responderConsulta(w, tn, rt.Sessao, res, nil)
+			return
+		}
+	}
 	res, err := m.svc.ConsultarDPSPorChave(t, chave)
 	m.responderConsulta(w, t, p.Municipio, res, err)
 }
@@ -602,37 +668,136 @@ func (m *Modulo) handleConsultas(w http.ResponseWriter, r *http.Request) {
 // O cursor (NSU) vai e volta no payload: sem estado no servidor, é o cliente que
 // guarda onde parou. Não paralelize a distribuição do mesmo CNPJ, sem o lock
 // que existia com banco, chamadas simultâneas embaralham o cursor.
+//
+// O município é opcional. Informado e conhecido, a distribuição sai pela classe
+// do provedor dele, como sempre saiu: em alguns a fila é a do sefin da
+// prefeitura, e trocar de fila em silêncio quebraria o cursor de quem já a lê.
+// Só quando essa classe não implementa a distribuição, ou sem município, a
+// sessão sai por SessaoNacional, sem credenciais de prefeitura: o ADN autentica
+// pelo certificado. Erro de outra natureza não cai para o ADN, porque o NSU do
+// cliente é da fila do município.
 func (m *Modulo) handleDistribuicao(w http.ResponseWriter, r *http.Request) {
-	p, t, ok := m.lerConsulta(w, r)
-	if !ok {
+	var p PedidoConsulta
+	if !m.lerPedidoConsulta(w, r, &p) {
 		return
 	}
-	res, err := m.svc.ConsultarDFe(t, p.NSU)
-	m.responderConsulta(w, t, p.Municipio, res, err)
+	if !fiscal.AmbienteDoPedido(w, &p.Ambiente, 0, "") {
+		return
+	}
+	rota, ok := RotaDoMunicipio(p.Municipio)
+	if ok {
+		registrarRota(w, rota, p.Ambiente)
+		t := m.sessaoDoEmitente(p.Emitente, rota.Sessao, p.Ambiente, p.Certificado, p.Credenciais)
+		res, err := m.svc.ConsultarDFe(t, cnpjConsulta(p.Emitente, rota.Sessao), p.NSU)
+		if err != nil || !OperacaoNaoSuportada(res.Resposta) {
+			m.responderDistribuicao(w, t, rota.Sessao, res, err)
+			return
+		}
+	}
+	registrarRota(w, rota.nacional(motivoDistribuicao), p.Ambiente)
+	t := m.sessaoDoEmitente(p.Emitente, SessaoNacional, p.Ambiente, p.Certificado, Credenciais{})
+	res, err := m.svc.ConsultarDFe(t, cnpjConsulta(p.Emitente, SessaoNacional), p.NSU)
+	m.responderDistribuicao(w, t, SessaoNacional, res, err)
 }
 
-func (m *Modulo) lerConsulta(w http.ResponseWriter, r *http.Request) (PedidoConsulta, acbr.TenantConfig, bool) {
+// responderDistribuicao é o responderConsulta, menos a rejeição muda do ADN.
+//
+// O ADN pode responder REJEICAO sem nenhum erro listado: é o que faz quando
+// falta o cnpjConsulta. A lib só monta [ErroN] a partir da lista, e a resposta
+// chegava com código 0, sem erro e sem documento, igual à de uma fila em dia.
+// O cliente seguia achando que não havia nada a baixar.
+func (m *Modulo) responderDistribuicao(w http.ResponseWriter, t acbr.Sessao,
+	cmun string, res acbr.Result, err error) {
+
+	if err == nil && rejeicaoSemErro(res.Resposta) {
+		httpx.ErroDetalhado(w, http.StatusBadGateway, "distribuicao_rejeitada",
+			"o ADN rejeitou a distribuição sem informar o motivo",
+			map[string]any{"resposta": res.Resposta})
+		return
+	}
+	m.responderConsulta(w, t, cmun, res, err)
+}
+
+// rejeicaoSemErro diz se o retorno do ADN, que a lib devolve cru em XmlRetorno,
+// é uma REJEICAO com a lista de erros vazia. Retorno que não é JSON (o sefin da
+// prefeitura, por exemplo) nunca é.
+func rejeicaoSemErro(resposta string) bool {
+	for linha := range strings.Lines(resposta) {
+		corpo, ok := strings.CutPrefix(strings.TrimRight(linha, "\r\n"), "XmlRetorno=")
+		if !ok {
+			continue
+		}
+		var r struct {
+			StatusProcessamento string
+			Erros               []json.RawMessage
+		}
+		if json.Unmarshal([]byte(corpo), &r) != nil {
+			return false
+		}
+		return r.StatusProcessamento == "REJEICAO" && len(r.Erros) == 0
+	}
+	return false
+}
+
+// cnpjConsulta é o CNPJ que a distribuição leva no cnpjConsulta, que o ADN
+// exige: sem o parâmetro, a consulta volta REJEICAO sem erro listado, mesmo com
+// o certificado do próprio CNPJ.
+//
+// A fila é a do ADN em toda classe que implementa a distribuição: o Padrão
+// Nacional e as de API própria que herdam dele (Betha, ISSNet, Fiorilli e
+// outras) reaproveitam a URL dele (ServicosPadraoNacional no
+// ACBrNFSeXServicos.ini). A exceção é o município com URL própria, o sefin da
+// prefeitura nos do Infisc no RS, onde o parâmetro não foi testado: ali a
+// consulta continua saindo sem ele, como sempre saiu.
+//
+// Vazio também quando o emitente não tem 14 dígitos: a lib recusa outro tamanho
+// antes de enviar.
+func cnpjConsulta(e Emitente, cmun string) string {
+	if tabelas.DistribuicaoPropriaNFSe(fiscal.SoDigitos(cmun)) {
+		return ""
+	}
+	if c := fiscal.SoDigitos(e.CNPJ); len(c) == 14 {
+		return c
+	}
+	return ""
+}
+
+// lerConsulta lê o pedido e abre a sessão no município informado, que é quem
+// decide o provedor consultado.
+func (m *Modulo) lerConsulta(w http.ResponseWriter, r *http.Request) (PedidoConsulta, acbr.Sessao, bool) {
 	var p PedidoConsulta
-	if !httpx.LerJSON(w, r, &p) {
-		return p, acbr.TenantConfig{}, false
+	if !m.lerPedidoConsulta(w, r, &p) {
+		return p, acbr.Sessao{}, false
 	}
-	if err := p.Certificado.Validar(); err != nil {
-		httpx.ErroJSON(w, http.StatusBadRequest, "certificado_invalido", err.Error())
-		return p, acbr.TenantConfig{}, false
-	}
-	layout, ok := m.layout(w, p.Municipio)
+	rota, ok := m.rota(w, p.Municipio)
 	if !ok {
-		return p, acbr.TenantConfig{}, false
+		return p, acbr.Sessao{}, false
 	}
 	if !fiscal.AmbienteDoPedido(w, &p.Ambiente, 0, "") {
-		return p, acbr.TenantConfig{}, false
+		return p, acbr.Sessao{}, false
 	}
-	t := m.tenantEmitente(p.Emitente, p.Municipio, p.Ambiente,
-		layout, p.Certificado, p.Credenciais)
+	rota = rota.DaNota(p.Chave)
+	registrarRota(w, rota, p.Ambiente)
+	p.Municipio = rota.Sessao
+	t := m.sessaoDoEmitente(p.Emitente, p.Municipio, p.Ambiente,
+		p.Certificado, p.Credenciais)
 	return p, t, true
 }
 
-func (m *Modulo) responderConsulta(w http.ResponseWriter, t acbr.TenantConfig,
+// lerPedidoConsulta é o que toda consulta exige antes de saber com quem fala:
+// JSON válido e certificado.
+func (m *Modulo) lerPedidoConsulta(w http.ResponseWriter, r *http.Request, p *PedidoConsulta) bool {
+	if !httpx.LerJSON(w, r, p) {
+		return false
+	}
+	if err := p.Certificado.Validar(); err != nil {
+		httpx.ErroJSON(w, http.StatusBadRequest, "certificado_invalido", err.Error())
+		return false
+	}
+	return true
+}
+
+func (m *Modulo) responderConsulta(w http.ResponseWriter, t acbr.Sessao,
 	cmun string, res acbr.Result, err error) {
 
 	if err != nil {
@@ -679,7 +844,7 @@ func (m *Modulo) handlePDF(w http.ResponseWriter, r *http.Request) {
 	var err error
 	// A sessão e o município usados sobrevivem ao switch: são eles que dizem
 	// QUAL provedor recusou, quando a lib recusa.
-	var t acbr.TenantConfig
+	var t acbr.Sessao
 	var cmun string
 	switch {
 	case strings.TrimSpace(p.XMLBase64) != "":
@@ -693,11 +858,15 @@ func (m *Modulo) handlePDF(w http.ResponseWriter, r *http.Request) {
 		// selecionado"). O município vem do pedido; na falta dele, do próprio
 		// XML, que já o carrega.
 		cmun = fiscal.Primeiro(fiscal.SoDigitos(p.Municipio), MunicipioDoXML(xml))
-		if _, ok := m.layout(w, cmun); !ok {
+		rota, ok := m.rota(w, cmun)
+		if !ok {
 			return
 		}
+		rota = rota.DaNota(ChaveDoXML(xml))
+		registrarRota(w, rota, "")
+		cmun = rota.Sessao
 		// Render local: não fala com o provedor, então não pede certificado.
-		t = fiscal.Tenant("", secaoACBr, "", fiscal.Certificado{})
+		t = fiscal.Sessao("", secaoACBr, "", fiscal.Certificado{})
 		t.Config = append(t.Config,
 			acbr.ConfigKV{Section: secaoACBr, Key: "CodigoMunicipio", Value: cmun})
 		res, err = m.svc.RenderizarPDF(t, xml)
@@ -706,16 +875,18 @@ func (m *Modulo) handlePDF(w http.ResponseWriter, r *http.Request) {
 			httpx.ErroJSON(w, http.StatusBadRequest, "certificado_invalido", errCert.Error())
 			return
 		}
-		layout, ok := m.layout(w, p.Municipio)
+		rota, ok := m.rota(w, p.Municipio)
 		if !ok {
 			return
 		}
 		if !fiscal.AmbienteDoPedido(w, &p.Ambiente, 0, "") {
 			return
 		}
-		cmun = fiscal.SoDigitos(p.Municipio)
-		t = m.tenantEmitente(p.Emitente, p.Municipio, p.Ambiente,
-			layout, p.Certificado, p.Credenciais)
+		rota = rota.DaNota(p.Chave)
+		registrarRota(w, rota, p.Ambiente)
+		cmun = rota.Sessao
+		t = m.sessaoDoEmitente(p.Emitente, cmun, p.Ambiente,
+			p.Certificado, p.Credenciais)
 		res, err = m.svc.ObterPDF(t, p.Chave)
 	default:
 		httpx.ErroJSON(w, http.StatusBadRequest, "campo_obrigatorio", "informe chave ou xml_b64")
@@ -755,7 +926,7 @@ func (m *Modulo) handleMunicipio(w http.ResponseWriter, r *http.Request) {
 		"suportado": ok,
 	}
 	if ok && r.URL.Query().Get("capacidades") == "1" {
-		t := m.tenantEmitente(Emitente{}, codigo, "", layout, fiscal.Certificado{}, Credenciais{})
+		t := m.sessaoDoEmitente(Emitente{}, codigo, "", fiscal.Certificado{}, Credenciais{})
 		if c, lido := m.capacidades(t); lido {
 			corpo["capacidades"] = c
 			corpo["operacoes"] = Operacoes(layout, c)
@@ -766,40 +937,21 @@ func (m *Modulo) handleMunicipio(w http.ResponseWriter, r *http.Request) {
 
 // --- apoio ------------------------------------------------------------------
 
-// layout resolve o município ou responde 422. Recusar aqui é melhor do que
-// mandar um XML que a prefeitura rejeitaria com mensagem obscura.
-func (m *Modulo) layout(w http.ResponseWriter, cmun string) (Layout, bool) {
-	c := fiscal.SoDigitos(cmun)
-	if c == "" {
-		httpx.ErroJSON(w, http.StatusBadRequest, "campo_obrigatorio",
-			"município (código IBGE) é obrigatório: é ele que decide o provedor de NFS-e")
-		return "", false
-	}
-	l, ok := LayoutDoMunicipio(c)
-	if !ok {
-		httpx.ErroDetalhado(w, http.StatusUnprocessableEntity, "provedor_nao_suportado",
-			"o município "+c+" não tem provedor de NFS-e conhecido nesta versão da tabela",
-			map[string]any{"municipio": c})
-		return "", false
-	}
-	return l, true
-}
-
-// tenant monta a sessão a partir do prestador do próprio pedido (ao gerar).
-func (m *Modulo) tenant(cnpj, cmun string, prest Pessoa, ambiente string, layout Layout,
-	cert fiscal.Certificado, cred Credenciais) acbr.TenantConfig {
-	return m.tenantEmitente(Emitente{
+// sessao monta a sessão a partir do prestador do próprio pedido (ao gerar).
+func (m *Modulo) sessao(cnpj, cmun string, prest Pessoa, ambiente string,
+	cert fiscal.Certificado, cred Credenciais) acbr.Sessao {
+	return m.sessaoDoEmitente(Emitente{
 		CNPJ: cnpj, InscMun: prest.IM, RazaoSocial: prest.XNome,
-	}, cmun, ambiente, layout, cert, cred)
+	}, cmun, ambiente, cert, cred)
 }
 
-// tenantEmitente monta a sessão nativa. O emitente vem do pedido porque não há
+// sessaoDoEmitente monta a sessão nativa. O emitente vem do pedido porque não há
 // cadastro no servidor: é a consequência direta de não persistir nada.
-func (m *Modulo) tenantEmitente(e Emitente, cmun, ambiente string, layout Layout,
-	cert fiscal.Certificado, cred Credenciais) acbr.TenantConfig {
+func (m *Modulo) sessaoDoEmitente(e Emitente, cmun, ambiente string,
+	cert fiscal.Certificado, cred Credenciais) acbr.Sessao {
 
 	cnpj := fiscal.SoDigitos(e.CNPJ)
-	t := fiscal.Tenant(cnpj, secaoACBr, ambiente, cert)
+	t := fiscal.Sessao(cnpj, secaoACBr, ambiente, cert)
 	t.Config = append(t.Config,
 		acbr.ConfigKV{Section: secaoACBr, Key: "CodigoMunicipio", Value: fiscal.SoDigitos(cmun)},
 		acbr.ConfigKV{Section: secaoACBr, Key: "Emitente.CNPJ", Value: cnpj},
@@ -810,8 +962,10 @@ func (m *Modulo) tenantEmitente(e Emitente, cmun, ambiente string, layout Layout
 	if e.RazaoSocial != "" {
 		t.Config = append(t.Config, acbr.ConfigKV{Section: secaoACBr, Key: "Emitente.RazSocial", Value: e.RazaoSocial})
 	}
-	// Só provedores não-Padrão Nacional usam login/token de prefeitura.
-	if layout != LayoutPadraoNacional {
+	// Só provedores não-Padrão Nacional usam login/token de prefeitura. Decide o
+	// provedor, não o layout: ABase e EL (WSChaveAcesso) e ModernizacaoPublica
+	// (WSUser, WSSenha) autenticam na API própria, onde o layout é o nacional.
+	if tabelas.FamiliaPorMunicipio(fiscal.SoDigitos(cmun)) != tabelas.FamiliaPadraoNacional {
 		for _, kv := range []struct{ k, v string }{
 			{"Emitente.WSUser", cred.Usuario},
 			{"Emitente.WSSenha", cred.Senha},
@@ -838,12 +992,13 @@ func (m *Modulo) tenantEmitente(e Emitente, cmun, ambiente string, layout Layout
 // Os detalhes trazem o que aquele provedor DE FATO expõe, perguntado à lib
 // (ObterInformacoesProvedor). É o que transforma "não dá" em "não dá, e o que
 // dá é isto".
-func (m *Modulo) naoSuportada(w http.ResponseWriter, t acbr.TenantConfig,
+func (m *Modulo) naoSuportada(w http.ResponseWriter, t acbr.Sessao,
 	cmun, resposta, operacao string) bool {
 
 	if !OperacaoNaoSuportada(resposta) {
 		return false
 	}
+	registrarDesfecho(w, "operacao_nao_suportada", nil)
 	det := map[string]any{"municipio": cmun, "resposta": resposta}
 	provedor := provedorDoMunicipio(cmun)
 	alvo := "este provedor"
@@ -860,10 +1015,10 @@ func (m *Modulo) naoSuportada(w http.ResponseWriter, t acbr.TenantConfig,
 	return true
 }
 
-// capacidades pergunta à lib o que o provedor do tenant expõe. Best-effort: a
+// capacidades pergunta à lib o que o provedor da sessão expõe. Best-effort: a
 // resposta só enriquece um erro que já vai ser devolvido, e falhar aqui não
 // pode trocar o erro real por outro.
-func (m *Modulo) capacidades(t acbr.TenantConfig) (Capacidades, bool) {
+func (m *Modulo) capacidades(t acbr.Sessao) (Capacidades, bool) {
 	res, err := m.svc.InformacoesProvedor(t)
 	if err != nil || strings.TrimSpace(res.Resposta) == "" {
 		return Capacidades{}, false
@@ -873,5 +1028,6 @@ func (m *Modulo) capacidades(t acbr.TenantConfig) (Capacidades, bool) {
 }
 
 func (m *Modulo) responderErro(w http.ResponseWriter, res acbr.Result, err error) {
+	registrarDesfecho(w, fiscal.CodigoDoErroDaLib(err), nil)
 	fiscal.ResponderErroDaLib(w, "NFS-e", res, err)
 }

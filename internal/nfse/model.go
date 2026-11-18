@@ -33,7 +33,7 @@ type InfDPS struct {
 	VerAplic string         `json:"verAplic,omitempty"`
 	CLocEmi  string         `json:"cLocEmi,omitempty"` // município emissor (IBGE); vazio = cMun do prestador
 	Prest    Prestador      `json:"prest"`
-	Toma     *Tomador       `json:"toma,omitempty"`
+	Toma     *Tomador       `json:"toma,omitempty"`   // tomador; omitido = consumidor não identificado. No Padrão Nacional exige xNome e CPF, CNPJ ou NIF
 	Interm   *Intermediario `json:"interm,omitempty"` // intermediário (seção [Intermediario])
 	Serv     Servico        `json:"serv"`
 	Valores  Valores        `json:"valores"`
@@ -172,7 +172,7 @@ type RegTrib struct {
 type Servico struct {
 	CMunPrestacao string `json:"cMunPrestacao,omitempty"` // município da prestação (IBGE)
 	CServ         string `json:"cServ,omitempty"`         // item da lista (→ cTribNac no Padrão Nacional)
-	CTribMun      string `json:"cTribMun,omitempty"`      // código de tributação municipal
+	CTribMun      string `json:"cTribMun,omitempty"`      // código de tributação municipal. Exatamente 3 dígitos, quando informado, na emissão pelo Ambiente Nacional. Obrigatório e numérico nos municípios do ISSNet pela API própria (Brasília, Goiânia)
 	CNBS          string `json:"cNBS,omitempty"`          // código NBS
 	CodigoCnae    string `json:"codigoCnae,omitempty"`    // CNAE
 	XDescServ     string `json:"xDescServ"`               // discriminação

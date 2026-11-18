@@ -92,8 +92,9 @@ variação é pequena, mas ela existe, e é o que sobra entre "reprodutível" e
 Há uma terceira entrada no binário, além das duas pinadas: os patches em
 `docker/acbr-patches/`. O `make acbr-compilar` passa
 `--build-context patches=docker/acbr-patches`, e o Dockerfile os aplica com
-`patch -p1` sobre `/src/acbr`, em ordem, falhando o build se algum não aplicar
-limpo.
+`patch -p1 --fuzz=0` sobre `/src/acbr`, em ordem, falhando o build se algum não
+aplicar limpo. O `--fuzz=0` é de propósito: com o padrão do `patch`, um hunk cujo
+contexto mudou upstream entra "com fuzz" no código novo sem ninguém revisar.
 
 São correções nossas no fonte do ACBr, ainda não reportadas ao projeto, e cada
 uma sustenta um pedaço do contrato:
@@ -102,15 +103,30 @@ uma sustenta um pedaço do contrato:
 |---|---|---|
 | `0001-lerini-rps-le-ibscbs-da-nfse` | o `LerIniRps` passa a ler `[IBSCBSNFSE]` e `[IBSCBSValoresNFSE]` | `infDPS.ibscbs.nfse`, e com ele os 24 campos de `totCIBS` |
 | `0002-lerxml-abrasfv2-endereco-nacional-mantem-1058` | o releitor do ABRASF 2.04 não perde o `CodigoPais` do endereço nacional | a emissão no GISS 2.04, que sem ele volta X800 |
-| `0003-giss-totrib-emite-indtottrib` | o gravador do GISS passa a emitir `<indTotTrib>`, o terceiro ramo do `choice` de `totTrib` | `valores.totTrib.indTotTrib`, e com ele a saída do E160 de carga tributária |
+| `0003-giss-totrib-emite-indtottrib` | sem valor a declarar, o gravador do GISS emite `<indTotTrib>0</indTotTrib>` em vez de um ramo de `totTrib` só com zeros | a saída do E160 de carga tributária para quem não informa `valores.totTrib` |
+| `0004-padraonacional-chave-usa-cloc-emi-informado` | a chave da DPS sai do `cLocEmi` informado, não do município da sessão | emitir pelo Ambiente Nacional num município que a lib atende por outra classe, com a sessão em `SessaoNacional`: é a saída do EM110 de Brasília para o Simples |
+| `0005-lib-consultardfe-por-cnpj` | a lib passa a exportar `NFSE_ConsultarDFePorCNPJ`, que leva o `cnpjConsulta`; o `NFSE_ConsultarDFe` não muda | a Distribuição DF-e pelo ADN, que sem o parâmetro responde `REJEICAO` sem nenhum erro listado |
+
+Cada mudança na lib também aparece no golden de XML, em
+`internal/nfse/testdata/golden_xml`: um arquivo por combinação de provedor, versão
+e API própria. `make test-integracao-nfse` o compara com a lib real, e o
+`publicar.yml` faz o mesmo contra a imagem publicada. Depois de um bump a diferença
+é esperada e é o que se quer ler: regere com `make golden-nfse`, com uma API de pé,
+e revise o diff antes de commitar.
+
+A cada bump, confira se o trunk2 já resolveu algum deles. Na r49010 nenhum foi
+resolvido, e o `make acbr-analise` mostra por onde começar. Na r48784 nenhum
+foi resolvido, mas o ACBr passou a emitir o `indTotTrib` quando ele vem 0 no INI
+(ACBR-9885) e a escolher o ramo de `totTrib` pelo regime do Simples. O 0003 foi
+reescrito sobre esse código e ficou só com o caso que o ACBr ainda não cobre.
 
 Isso importa na hora de trocar a `.so`. Compilada **sem** os patches, a lib
 aceita o mesmo INI e descarta em silêncio as chaves da primeira linha: a nota
 sai, e sai errada.
 
-As `.so` anexadas ao release v1.3.0 são a r48100 compilada com estes três
-patches, e a imagem as usa a partir da v1.3.1. O `revisao.txt` continua dizendo
-só `48100`, porque o download compara esse valor exato: o que distingue esses
+As `.so` do release `acbrlib-r49010` são a r49010 compilada com estes cinco patches
+(antes, a r48784 vinha do v1.5.1, a partir da imagem v1.5.2).
+O `revisao.txt` diz só `49010`, porque o download compara esse valor exato: o que distingue os
 binários dos oficiais é o `SHA256SUMS` do release e o conteúdo de
 `docker/acbr-patches/` na tag.
 
@@ -131,9 +147,9 @@ As libs entram e saem do repositório por dois comandos, e os dois passam por
 | publicar | `make acbr-libs-publicar` | quem mantém, uma vez por revisão |
 | consumir | `make acbr-libs-baixar` | qualquer clone, e os jobs `cgo` e `publicar` do CI |
 
-Os binários são **anexos de um release `v*`**, não de um release próprio: a aba
-de Releases tem só versões deste serviço, em versionamento semântico.
-`ACBR_LIBS_RELEASE`, no `Makefile`, diz qual release os carrega.
+Da v1.5.1 em diante os binários ficam em releases `v*`; revisões novas têm release
+próprio, `acbrlib-rNNNNN`, marcado como pré-release para nunca levar o selo
+"Latest". `ACBR_LIBS_RELEASE`, no `Makefile`, diz qual release os carrega.
 
 `ACBR_REV` continua sendo a fonte única da revisão do ACBr. Como a tag do
 release não carrega mais esse número, vai junto um `revisao.txt`, e o download
@@ -146,6 +162,11 @@ São oito arquivos: os cinco `.so`, o `schemas.tar.gz`, o `SHA256SUMS` e o
 
 ### Publicando uma revisão nova
 
+0. `make acbr-analise ALVO=<revisão>`, antes de compilar. Só lê o SVN oficial e
+   deixa em `out/acbr-analise/relatorio.md` os commits por área, a situação de
+   cada patch, os municípios que trocam de provedor e a nota técnica de cada
+   ambiente. Aplicar sem conflito não prova que o patch segue necessário: leia o
+   trecho dos arquivos que mudaram.
 1. `make acbr-fonte && make acbr-compilar && make acbr-extrair`, com `ACBR_REV`
    e `ACBR_FRCE_REF` já apontando para o que você quer. Os oito arquivos ficam
    em `acbr-libs/`. O `acbr-fonte` confere a revisão diretório a diretório e
@@ -156,7 +177,12 @@ São oito arquivos: os cinco `.so`, o `schemas.tar.gz`, o `SHA256SUMS` e o
    lá e não muda aqui vira roteamento errado, sem aviso. O script recusa emitir
    se algum provedor não tiver família em `provedor_familia.tsv`, que é a tabela
    mantida à mão: classifique o provedor novo pela classe ancestral dele (o
-   script imprime a herança) e rode de novo.
+   script imprime a herança) e rode de novo. A tabela também marca os
+   municípios em que a lib usa a API própria do provedor, que gera DPS e por
+   isso é roteado como Padrão Nacional; `make acbr-tabelas-conferir` falha se a
+   tabela versionada divergir do fonte. Depois do bump, `make
+   test-integracao-nfse` contra uma API de pé confere a raiz do XML de cada
+   provedor.
 3. `make acbr-chaves`, que regenera o snapshot de chaves do lockstep
    (`internal/{cte,mdfe,nfse}/testdata/lerini_chaves.tsv`) a partir dos três
    leitores de INI do fonte. É o que denuncia chave que a lib passou a aceitar e
@@ -165,23 +191,32 @@ São oito arquivos: os cinco `.so`, o `schemas.tar.gz`, o `SHA256SUMS` e o
    falha quando o snapshot versionado diverge do fonte pinado.
 4. `make enums-conferir`, que compara os valores publicados com os XSD do pacote
    de schemas. É por ali que uma nota técnica que mexe em código aparece.
-5. Suba `ACBR_REV` e `ACBR_LIBS_RELEASE` no `Makefile`, commite e mescle.
-6. Empurre a tag da versão: `git tag -a vX.Y.Z -m vX.Y.Z && git push origin
-   vX.Y.Z`. O `release.yml` cria a página do release e promove as tags da
-   imagem (`:vX.Y.Z`, `:vX`, `:stable`, `:latest`).
-7. `make acbr-libs-publicar`, que anexa os oito arquivos ao release da versão.
-   Rodar de novo atualiza os anexos em vez de falhar. O script recusa rodar se o
-   release ainda não existir, e confere no fim que o selo "Latest" está numa tag
-   `v*`.
+5. `make acbr-libs-publicar ACBR_REV=<rev> ACBR_LIBS_RELEASE=acbrlib-r<rev>`, que
+   cria o release das libs e anexa os oito arquivos. Rodar de novo atualiza os
+   anexos em vez de falhar.
+6. Suba `ACBR_REV` e `ACBR_LIBS_RELEASE` no `Makefile` numa branch, e termine com
+   `make finish`.
+7. `make release` e `make ship`, como em qualquer versão.
 
-A ordem importa: o CI baixa os `.so` do release apontado por
-`ACBR_LIBS_RELEASE`, então o passo 7 precisa acontecer antes de o próximo push
-na `main` rodar os jobs `cgo` e `publicar`.
+A ordem importa: o `make finish` recusa a branch se o release das libs não tiver a
+revisão pinada, e o `publicar.yml` baixa as libs de lá.
 
 O `SHA256SUMS` é gerado na publicação e conferido no download **antes** de os
 arquivos entrarem em `acbr-libs/`: download truncado que chega ao diretório vira
 `.so` corrompido embutido na imagem, e SIGSEGV em runtime longe da causa. Como o
 repositório é público, o download não usa token.
+
+O cache local vale só se bater com o `SHA256SUMS` **do release**. Comparar com o
+`SHA256SUMS` local não basta: o `acbr-extrair` regera o local a partir do que
+extraiu, e um cache com a lib oficial por cima das patchadas conferia consigo
+mesmo e passava. Sem acesso ao release, o download avisa e segue com o cache.
+
+A imagem também é conferida. A fumaça prova que a lib carrega, não qual lib é,
+e a v1.3.0 saiu com a lib de NFS-e sem patch passando por ela. Agora o
+`publicar.yml` e o `release.yml` comparam as `.so` dentro da imagem com o
+`SHA256SUMS` do release (`scripts/conferir-libs-imagem.sh`), e o release não
+promove a imagem se divergirem. As notas do release trazem o digest da imagem e
+o sha da lib de NFS-e. Localmente: `make imagem-libs-conferir IMAGEM=<imagem>`.
 
 ### Num repositório novo, ou num fork
 

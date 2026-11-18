@@ -1,19 +1,40 @@
 name: CI
 
+# Uma vez só por mudança. Com push em toda branch E pull_request, cada PR rodava
+# tudo em dobro. A branch de trabalho já passou pelo gate local do `make finish`:
+# aqui valem develop, onde o trabalho se integra, e o PR da release para main.
+#
+# Documentação não dispara em develop. No PR não dá para ignorar caminho: os checks
+# são obrigatórios em main, e um check que não roda deixa o PR esperando para sempre.
+#
+# Fork: o push na main também dispara, porque é ele que publica e implanta na
+# Kronn (job "publicar", no fim). Sem a main aqui, o deploy contínuo deixa de
+# existir sem erro nenhum. Commit só de documentação na main não gera imagem
+# nova: o código da imagem é o mesmo do commit anterior.
 on:
   push:
-    branches: ["**"]
+    branches: [develop, main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE", "NOTICE"]
   pull_request:
+    branches: [main]
+
+# Commit novo na mesma branch torna o run anterior inútil. Na main, não: cancelar
+# interromperia um deploy em curso no meio, e a fila do job "publicar" já
+# garante a ordem.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:
     name: fmt + vet + test (domínio puro, sem .so)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.3"
           cache: true
       # Gate de formatação: falha se algum .go rastreado não estiver gofmt-limpo.
       - name: gofmt
@@ -25,8 +46,12 @@ jobs:
       # CGO desligado: compila o binding stub. O domínio inteiro, que é o ativo
       # do projeto: é testável sem a lib nativa E sem certificado, porque a fase
       # 1 do contrato não assina. É o que torna este job barato e honesto.
-      - run: CGO_ENABLED=0 go vet ./...
-      - run: CGO_ENABLED=0 go test ./...
+      # A tag integracao só roda depois do merge, e sem compilar aqui um rename
+      # quebraria esses testes sem ninguém ver no PR.
+      - run: CGO_ENABLED=0 go vet -tags integracao ./...
+      # O race detector exige cgo, mas não a lib: sem a tag acbrlib entra o stub, o
+      # mesmo código de CGO_ENABLED=0. Por isso roda uma vez só, e já com -race.
+      - run: CGO_ENABLED=1 go test -race ./...
       # A spec é gerada dos modelos Go. Este gate impede que ela envelheça: sem
       # ele, o campo que alguém adicionar hoje some da documentação amanhã.
       # Regenera a spec e confere que ela é YAML válido. O segundo já pegou uma
@@ -41,19 +66,28 @@ jobs:
   cgo:
     name: type-check + link do binding contra as .so reais
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.3"
           cache: true
       # As libs NEEDED pelo .so: o linker precisa delas para resolver as
       # referências transitivas.
       - name: dependências nativas
         run: |
+          # Sem docs nem man: é o que mais demora no apt do runner.
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libglib2.0-0 libgtk2.0-0
+      # O download confere o cache contra o SHA256SUMS do release, então um cache
+      # velho não passa: no pior caso ele baixa de novo.
+      - uses: actions/cache@v4
+        with:
+          path: acbr-libs
+          key: acbr-libs-${{ hashFiles('Makefile') }}
       - name: baixa as libs nativas
         run: make acbr-libs-baixar
       # Este job pega o que o job acima NÃO pega: assinatura C errada no header.
@@ -61,33 +95,37 @@ jobs:
       # em runtime, já aconteceu com CTE_Enviar.
       - run: make test-cgo
       - run: make build-cgo
+      # Um bump do ACBr pode trocar os XSD sem nenhum teste de Go perceber.
+      - run: make enums-conferir
 
   govulncheck:
     name: govulncheck (CVEs alcançadas pelo código)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.3"
           cache: true
-      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
       - run: CGO_ENABLED=0 govulncheck ./...
 
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.3"
           cache: true
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.1
+          version: v2.15.0
           # verify baixa o JSON Schema do site do golangci a cada run só para
           # validar o .golangci.yml: dependência de rede externa que já derrubou
           # CI por timeout, sem nada a ver com o código.
@@ -96,6 +134,7 @@ jobs:
   segredo:
     name: nenhum segredo no repositório
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       # Este projeto recebe certificado alheio por payload. Um .pfx ou .env que

@@ -14,7 +14,7 @@ import (
 	"github.com/4devsmart/wrapper-api/internal/platform/config"
 )
 
-// remoto implementa as cinco interfaces de serviço delegando a um processo
+// remoto implementa as quatro interfaces de serviço delegando a um processo
 // fiscal-worker (ver rpc.go). Um único tipo atende todas elas, como o stub
 // indisponivel, o que muda é o campo servico, que endereça o binding do outro
 // lado.
@@ -23,12 +23,11 @@ type remoto struct {
 	pool    *poolWorkers
 }
 
-// remoto satisfaz as cinco interfaces de serviço.
+// remoto satisfaz as quatro interfaces de serviço.
 var (
 	_ NFSeServico   = remoto{}
 	_ CTeServico    = remoto{}
 	_ MDFeServico   = remoto{}
-	_ NFeServico    = remoto{}
 	_ BoletoServico = remoto{}
 )
 
@@ -39,7 +38,6 @@ func newRemotos(cfg config.ACBr) *Servicos {
 		NFSe:   remoto{servico: ServicoNFSe, pool: p},
 		CTe:    remoto{servico: ServicoCTe, pool: p},
 		MDFe:   remoto{servico: ServicoMDFe, pool: p},
-		NFe:    remoto{servico: ServicoNFe, pool: p},
 		Boleto: remoto{servico: ServicoBoleto, pool: p},
 	}
 }
@@ -51,8 +49,10 @@ func newRemotos(cfg config.ACBr) *Servicos {
 // capacidade é len(workers)*slots, e é ela que limita quantas chamadas nativas
 // correm em paralelo: limite que NÃO existia com a lib no processo da API.
 type poolWorkers struct {
-	livres  chan *destino
-	timeout time.Duration
+	livres chan *destino
+	// destinos são todos os workers, livres ou não.
+	destinos []*destino
+	timeout  time.Duration
 	// quarentena é quanto tempo um worker que falhou o DIAL fica fora do rodízio.
 	// Sem isso ele devolve a vaga na hora, é reescolhido em microssegundos e passa
 	// a absorver a fila inteira servindo erro: enquanto um worker vivo está
@@ -83,6 +83,7 @@ func novoPool(cfg config.ACBr) *poolWorkers {
 	}
 	for _, addr := range cfg.Workers {
 		d := novoDestino(addr)
+		p.destinos = append(p.destinos, d)
 		for i := 0; i < slots; i++ {
 			p.livres <- d // o mesmo destino ocupa `slots` vagas
 		}
@@ -115,20 +116,23 @@ func novoDestino(addr string) *destino {
 	return &destino{rotulo: addr, url: strings.TrimSuffix(addr, "/") + RotaRPC, cli: &http.Client{Transport: tr}}
 }
 
-// saudavel tenta o /healthz de um worker livre. Não consome vaga por muito
-// tempo nem toca na lib nativa.
+// saudavel diz se algum worker responde ao /healthz. Pergunta a todos, sem passar
+// pelas vagas: worker ocupado com uma emissão está pronto, e disputar a vaga faria
+// o /readyz acusar indisponível justo quando ele trabalha.
 func (p *poolWorkers) saudavel(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	var d *destino
-	select {
-	case d = <-p.livres:
-		defer func() { p.livres <- d }()
-	case <-ctx.Done():
-		return fmt.Errorf("nenhum worker fiscal livre: %w", ErrUnavailable)
+	falha := fmt.Errorf("nenhum worker fiscal configurado: %w", ErrUnavailable)
+	for _, d := range p.destinos {
+		if falha = d.saudavel(ctx); falha == nil {
+			return nil
+		}
 	}
+	return falha
+}
 
+func (d *destino) saudavel(ctx context.Context) error {
 	url := strings.TrimSuffix(d.url, RotaRPC) + RotaHealth
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -146,9 +150,14 @@ func (p *poolWorkers) saudavel(ctx context.Context) error {
 }
 
 // chamar adquire um worker livre, faz a chamada e devolve a vaga.
+//
+// A fila e a chamada têm prazos separados. Com um só, quem esperou 85s na fila
+// transmitia com 5s de sobra: o documento saía, o prazo estourava no meio, e a
+// resposta virava indeterminada por culpa da fila. Desistir na fila é seguro, nada
+// saiu, então o prazo da chamada só começa com a vaga na mão.
 func (p *poolWorkers) chamar(pedido Pedido) (Resposta, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
-	defer cancel()
+	fila := time.NewTimer(p.timeout)
+	defer fila.Stop()
 
 	var d *destino
 	var mortoNoDial bool
@@ -165,9 +174,12 @@ func (p *poolWorkers) chamar(pedido Pedido) (Resposta, error) {
 			}
 			p.livres <- d
 		}()
-	case <-ctx.Done():
+	case <-fila.C:
 		return Resposta{}, fmt.Errorf("nenhum worker fiscal livre em %s: %w", p.timeout, ErrUnavailable)
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
+	defer cancel()
 
 	corpo, err := json.Marshal(pedido)
 	if err != nil {
@@ -229,25 +241,25 @@ func erroDaResposta(resp Resposta) error {
 func erroDeTransporte(d *destino, p Pedido, err error) (falha error, falhouNoDial bool) {
 	var opErr *net.OpError
 	if errors.As(err, &opErr) && opErr.Op == "dial" {
-		return fmt.Errorf("worker fiscal %s inacessível (%v): %w", d.rotulo, err, ErrUnavailable), true
+		return fmt.Errorf("worker fiscal %s inacessível (%w): %w", d.rotulo, err, ErrUnavailable), true
 	}
 	if metodosLocais[p.Metodo] {
-		return fmt.Errorf("worker fiscal %s caiu durante %s/%s (%v): a operação não transmite nada, repetir é seguro: %w",
+		return fmt.Errorf("worker fiscal %s caiu durante %s/%s (%w): a operação não transmite nada, repetir é seguro: %w",
 			d.rotulo, p.Servico, p.Metodo, err, ErrUnavailable), false
 	}
-	return fmt.Errorf("worker fiscal %s falhou durante %s/%s (%v): confira antes de repetir: %w",
+	return fmt.Errorf("worker fiscal %s falhou durante %s/%s (%w): confira antes de repetir: %w",
 		d.rotulo, p.Servico, p.Metodo, err, ErrIndeterminado), false
 }
 
 // --- implementação das interfaces -------------------------------------------
 
 // rpc executa um método no worker.
-func (r remoto) rpc(metodo string, t TenantConfig, a Args) (Resposta, error) {
-	return r.pool.chamar(Pedido{Servico: r.servico, Metodo: metodo, Tenant: t, Args: a})
+func (r remoto) rpc(metodo string, t Sessao, a Args) (Resposta, error) {
+	return r.pool.chamar(Pedido{Servico: r.servico, Metodo: metodo, Sessao: t, Args: a})
 }
 
 // chamar é o atalho para os métodos que devolvem (Result, error).
-func (r remoto) chamar(metodo string, t TenantConfig, a Args) (Result, error) {
+func (r remoto) chamar(metodo string, t Sessao, a Args) (Result, error) {
 	resp, err := r.rpc(metodo, t, a)
 	return resp.Result(), err
 }
@@ -261,152 +273,132 @@ func (r remoto) Saudavel(ctx context.Context) error { return r.pool.saudavel(ctx
 func (remoto) Close() error                         { return nil } // a conexão é por chamada; nada a liberar
 
 func (r remoto) Version() (string, error) {
-	resp, err := r.rpc("Version", TenantConfig{}, Args{})
+	resp, err := r.rpc("Version", Sessao{}, Args{})
 	return resp.Versao, err
 }
 
 // Servico (comum a NFS-e/CT-e/MDF-e).
 
-func (r remoto) Emitir(t TenantConfig, ini string) (Result, error) {
+func (r remoto) Emitir(t Sessao, ini string) (Result, error) {
 	return r.chamar("Emitir", t, Args{INI: ini})
 }
 
-func (r remoto) MontarXML(t TenantConfig, ini string) (Result, error) {
+func (r remoto) MontarXML(t Sessao, ini string) (Result, error) {
 	return r.chamar("MontarXML", t, Args{INI: ini})
 }
 
-func (r remoto) ValidarRegras(t TenantConfig, ini string) (Result, error) {
+func (r remoto) ValidarRegras(t Sessao, ini string) (Result, error) {
 	return r.chamar("ValidarRegras", t, Args{INI: ini})
 }
 
-func (r remoto) Transmitir(t TenantConfig, xml string) (Result, error) {
+func (r remoto) Transmitir(t Sessao, xml string) (Result, error) {
 	return r.chamar("Transmitir", t, Args{XML: xml})
 }
 
-func (r remoto) Consultar(t TenantConfig, chave string) (Result, error) {
+func (r remoto) Consultar(t Sessao, chave string) (Result, error) {
 	return r.chamar("Consultar", t, Args{Chave: chave})
 }
 
-func (r remoto) Cancelar(t TenantConfig, ini string) (Result, error) {
+func (r remoto) Cancelar(t Sessao, ini string) (Result, error) {
 	return r.chamar("Cancelar", t, Args{INI: ini})
 }
 
-func (r remoto) ObterPDF(t TenantConfig, chave string) (Result, error) {
+func (r remoto) ObterPDF(t Sessao, chave string) (Result, error) {
 	return r.chamar("ObterPDF", t, Args{Chave: chave})
 }
 
-func (r remoto) RenderizarPDF(t TenantConfig, xml string) (Result, error) {
+func (r remoto) RenderizarPDF(t Sessao, xml string) (Result, error) {
 	return r.chamar("RenderizarPDF", t, Args{XML: xml})
-}
-
-func (r remoto) XmlParaIni(t TenantConfig, xml string) (Result, error) {
-	return r.chamar("XmlParaIni", t, Args{XML: xml})
 }
 
 // NFS-e.
 
-func (r remoto) SubstituirNFSe(t TenantConfig, iniNovaDPS string, sub SubstituicaoNFSe) (Result, error) {
+func (r remoto) SubstituirNFSe(t Sessao, iniNovaDPS string, sub SubstituicaoNFSe) (Result, error) {
 	return r.chamar("SubstituirNFSe", t, Args{INI: iniNovaDPS, Sub: &sub})
 }
 
 // InformacoesProvedor não leva argumento: o provedor sai do CodigoMunicipio que
-// já viaja no tenant.
-func (r remoto) InformacoesProvedor(t TenantConfig) (Result, error) {
+// já viaja na sessão.
+func (r remoto) InformacoesProvedor(t Sessao) (Result, error) {
 	return r.chamar("InformacoesProvedor", t, Args{})
 }
 
-func (r remoto) ConsultarDFe(t TenantConfig, nsu int) (Result, error) {
-	return r.chamar("ConsultarDFe", t, Args{NSU: nsu})
+func (r remoto) ConsultarDFe(t Sessao, cnpj string, nsu int) (Result, error) {
+	return r.chamar("ConsultarDFe", t, Args{CNPJ: cnpj, NSU: nsu})
 }
 
-func (r remoto) ConsultarDPSPorChave(t TenantConfig, chaveDPS string) (Result, error) {
+func (r remoto) ConsultarDPSPorChave(t Sessao, chaveDPS string) (Result, error) {
 	return r.chamar("ConsultarDPSPorChave", t, Args{Chave: chaveDPS})
 }
 
-func (r remoto) ConsultarPorNumero(t TenantConfig, numero string, pagina int) (Result, error) {
+func (r remoto) ConsultarPorNumero(t Sessao, numero string, pagina int) (Result, error) {
 	return r.chamar("ConsultarPorNumero", t, Args{Numero: numero, Pagina: pagina})
 }
 
-func (r remoto) ConsultarPorFaixa(t TenantConfig, inicial, final string, pagina int) (Result, error) {
+func (r remoto) ConsultarPorFaixa(t Sessao, inicial, final string, pagina int) (Result, error) {
 	return r.chamar("ConsultarPorFaixa", t, Args{Numero: inicial, NumeroFinal: final, Pagina: pagina})
 }
 
-func (r remoto) ConsultarPorRps(t TenantConfig, numeroRps, serie, tipo, codVerificacao string) (Result, error) {
+func (r remoto) ConsultarPorRps(t Sessao, numeroRps, serie, tipo, codVerificacao string) (Result, error) {
 	return r.chamar("ConsultarPorRps", t, Args{
 		Numero: numeroRps, Serie: serie, Tipo: tipo, CodVerificacao: codVerificacao,
 	})
 }
 
-func (r remoto) ConsultarSituacao(t TenantConfig, protocolo, numLote string) (Result, error) {
+func (r remoto) ConsultarSituacao(t Sessao, protocolo, numLote string) (Result, error) {
 	return r.chamar("ConsultarSituacao", t, Args{Protocolo: protocolo, NumLote: numLote})
 }
 
-func (r remoto) ConsultarLoteRps(t TenantConfig, protocolo, numLote string) (Result, error) {
+func (r remoto) ConsultarLoteRps(t Sessao, protocolo, numLote string) (Result, error) {
 	return r.chamar("ConsultarLoteRps", t, Args{Protocolo: protocolo, NumLote: numLote})
 }
 
 // CT-e / MDF-e.
 
-func (r remoto) CartaCorrecao(t TenantConfig, ini string) (Result, error) {
+func (r remoto) CartaCorrecao(t Sessao, ini string) (Result, error) {
 	return r.chamar("CartaCorrecao", t, Args{INI: ini})
 }
 
-func (r remoto) Encerrar(t TenantConfig, ini string) (Result, error) {
+func (r remoto) Encerrar(t Sessao, ini string) (Result, error) {
 	return r.chamar("Encerrar", t, Args{INI: ini})
 }
 
-func (r remoto) EnviarEvento(t TenantConfig, ini string) (Result, error) {
+func (r remoto) EnviarEvento(t Sessao, ini string) (Result, error) {
 	return r.chamar("EnviarEvento", t, Args{INI: ini})
 }
 
-func (r remoto) SalvarEventoPDF(t TenantConfig, xmlDoc, xmlEvento string) (Result, error) {
+func (r remoto) SalvarEventoPDF(t Sessao, xmlDoc, xmlEvento string) (Result, error) {
 	return r.chamar("SalvarEventoPDF", t, Args{XMLDoc: xmlDoc, XMLEvento: xmlEvento})
 }
 
-func (r remoto) DistribuicaoDFe(t TenantConfig, p DistDFeParams) (Result, error) {
-	return r.chamar("DistribuicaoDFe", t, Args{Dist: &p})
-}
-
-func (r remoto) StatusServico(t TenantConfig) (Result, error) {
+func (r remoto) StatusServico(t Sessao) (Result, error) {
 	return r.chamar("StatusServico", t, Args{})
 }
 
-func (r remoto) ConsultarRecibo(t TenantConfig, recibo string) (Result, error) {
-	return r.chamar("ConsultarRecibo", t, Args{Recibo: recibo})
-}
-
-func (r remoto) ConsultaCadastro(t TenantConfig, uf, nDocumento string, ehIE bool) (Result, error) {
+func (r remoto) ConsultaCadastro(t Sessao, uf, nDocumento string, ehIE bool) (Result, error) {
 	return r.chamar("ConsultaCadastro", t, Args{UF: uf, Documento: nDocumento, EhIE: ehIE})
 }
 
-func (r remoto) ConsultaNaoEncerrados(t TenantConfig, cnpj string) (Result, error) {
+func (r remoto) ConsultaNaoEncerrados(t Sessao, cnpj string) (Result, error) {
 	return r.chamar("ConsultaNaoEncerrados", t, Args{CNPJ: cnpj})
 }
 
 // NF-e (distribuição + manifestação).
 
-func (r remoto) Manifestar(t TenantConfig, ini string) (Result, error) {
-	return r.chamar("Manifestar", t, Args{INI: ini})
-}
-
 // Boleto.
 
-func (r remoto) GerarPDF(t TenantConfig, ini string) (Result, error) {
+func (r remoto) GerarPDF(t Sessao, ini string) (Result, error) {
 	return r.chamar("GerarPDF", t, Args{INI: ini})
 }
 
-func (r remoto) GerarRemessa(t TenantConfig, ini string, numArquivo int) (Result, error) {
+func (r remoto) GerarRemessa(t Sessao, ini string, numArquivo int) (Result, error) {
 	return r.chamar("GerarRemessa", t, Args{INI: ini, NumArquivo: numArquivo})
 }
 
-func (r remoto) LerRetorno(t TenantConfig, configINI, retornoConteudo string) (Result, error) {
+func (r remoto) LerRetorno(t Sessao, configINI, retornoConteudo string) (Result, error) {
 	return r.chamar("LerRetorno", t, Args{ConfigINI: configINI, Retorno: retornoConteudo})
 }
 
-func (r remoto) Registrar(t TenantConfig, op BoletoOnline) (Result, error) {
+func (r remoto) Registrar(t Sessao, op BoletoOnline) (Result, error) {
 	return r.chamar("Registrar", t, Args{Boleto: &op})
-}
-
-func (r remoto) ConsultarTitulos(t TenantConfig, op BoletoOnline) (Result, error) {
-	return r.chamar("ConsultarTitulos", t, Args{Boleto: &op})
 }

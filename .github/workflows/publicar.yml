@@ -1,14 +1,19 @@
 name: Publicar imagem
 
-# Builda e publica a imagem no GHCR, taggeada com o SHA. Depois do teste de
-# fumaça, o MESMO digest vira :latest e, se o secret KRONN_DEPLOY_HOOK existir,
-# a Kronn é chamada para reimplantar. Sem o secret, publica e para aí. Quem
-# promove para :vX.Y.Z continua sendo o release.
+# Builda a imagem e só a publica como :<sha> depois de fumaça, integração e
+# conferência das libs. Até lá ela existe só como :teste-<sha>, que ninguém
+# consome: :<sha> existir quer dizer que ela passou. Depois, o MESMO digest vira
+# :latest e, se o secret KRONN_DEPLOY_HOOK existir, a Kronn é chamada para
+# reimplantar. Sem o secret, publica e para aí. Quem promove para :vX.Y.Z
+# continua sendo o release.
 #
 # Não tem gatilho próprio: quem chama é o job "publicar" do ci.yml, em push na
 # main, e só depois de todos os gates passarem. Com gatilho de push próprio ele
 # rodava em paralelo com o CI, e um commit reprovado nos testes chegava à
 # produção do mesmo jeito. Para republicar, re-execute o CI daquele commit.
+#
+# Fork: o upstream roda este workflow no push de release/vX.Y.Z (`make release`).
+# Aqui o deploy é contínuo a partir da main, então esse gatilho não existe.
 on:
   workflow_call:
     secrets:
@@ -19,12 +24,18 @@ permissions:
   contents: read
   packages: write
 
+# Sem concurrency aqui: ela fica no job "publicar" do ci.yml, que chama este
+# workflow, com cancel-in-progress: false. O mesmo grupo repetido aqui faria o
+# workflow chamado disputar a vaga com o próprio job que o chamou.
+
 env:
   IMAGEM: ghcr.io/${{ github.repository }}/api
+  IMAGEM_TESTE: ghcr.io/${{ github.repository }}/api:teste-${{ github.sha }}
 
 jobs:
   publicar:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -45,11 +56,7 @@ jobs:
           context: .
           platforms: linux/amd64 # a ACBrLib só existe para x86_64
           push: true
-          # Só o :sha aqui. O :latest anda depois da fumaça: publicá-lo junto,
-          # antes do teste, deixaria uma imagem que não sobe à disposição de
-          # qualquer redeploy que puxe :latest.
-          tags: |
-            ${{ env.IMAGEM }}:${{ github.sha }}
+          tags: ${{ env.IMAGEM_TESTE }}
           build-args: |
             APP_COMMIT=${{ github.sha }}
             APP_BUILD=${{ github.event.repository.updated_at }}
@@ -70,10 +77,10 @@ jobs:
           # herda a dona do /run/wrapper da imagem.
           docker volume create fumaca-run
           docker run -d --name fumaca-worker --network fumaca \
-            -v fumaca-run:/run/wrapper "${IMAGEM}:${GITHUB_SHA}" worker
+            -v fumaca-run:/run/wrapper "${IMAGEM_TESTE}" worker
           docker run -d --name fumaca-api --network fumaca -p 8080:8080 \
             -e API_TOKEN=fumaca -e ACBR_WORKERS=/run/wrapper/fiscal.sock \
-            -v fumaca-run:/run/wrapper "${IMAGEM}:${GITHUB_SHA}"
+            -v fumaca-run:/run/wrapper "${IMAGEM_TESTE}"
           # A espera é pelo /readyz, NÃO pelo /healthz. O healthz responde assim
           # que a API abre a porta e não toca no worker, então esperar por ele é
           # esperar por nada: quem depende da lib nativa ter carregado e do
@@ -92,13 +99,38 @@ jobs:
           fi
           curl -fsS localhost:8080/healthz
           curl -fsS localhost:8080/readyz
-          # backend "cgo" nos cinco serviços = a lib nativa realmente carregou.
-          docker logs fumaca-worker 2>&1 | grep -c '"backend":"cgo"' | grep -q '^5$' \
-            || { echo "::error::a lib nativa não carregou nos 5 serviços"; docker logs fumaca-worker; exit 1; }
+          # backend "cgo" nos quatro serviços = a lib nativa realmente carregou.
+          docker logs fumaca-worker 2>&1 | grep -c '"backend":"cgo"' | grep -q '^4$' \
+            || { echo "::error::a lib nativa não carregou nos 4 serviços"; docker logs fumaca-worker; exit 1; }
           echo "fumaça OK"
 
+      # A fumaça só prova que a lib carrega. Isto gera o XML de um município por
+      # combinação de provedor, versão e API própria contra a lib da imagem e cobra
+      # o layout que a tabela informa. Não transmite nada. A discordância entre a
+      # tabela e a lib já mandou DPS com valores de ABRASF para Brasília.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.3"
+
+      - name: "integração: raiz do XML por provedor, contra a imagem"
+        env:
+          WRAPPER_API_URL: http://127.0.0.1:8080
+          WRAPPER_API_TOKEN: fumaca
+        run: make test-integracao-nfse
+
+      # A fumaça prova que a lib carrega, não qual lib é. A v1.3.0 subiu e passou
+      # na fumaça com a lib de NFS-e sem os patches que o próprio release trazia.
+      - name: as libs da imagem são as do release
+        run: scripts/conferir-libs-imagem.sh "${IMAGEM_TESTE}" acbr-libs
+
+      # Depois de todas as conferências de propósito. Copia o manifesto, então o
+      # digest é o da imagem que acabou de ser conferida.
+      - name: "promove :teste-<sha> → :<sha>"
+        run: docker buildx imagetools create -t "${IMAGEM}:${GITHUB_SHA}" "${IMAGEM_TESTE}"
+
       # imagetools copia o manifesto: :latest aponta para o digest que acabou de
-      # passar pela fumaça, sem rebuild, como o release faz com :vX.Y.Z.
+      # passar pela fumaça, pela integração e pela conferência das libs, sem
+      # rebuild, como o release faz com :vX.Y.Z.
       - name: promove :<sha> → :latest
         run: |
           set -eu

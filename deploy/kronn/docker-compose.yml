@@ -13,8 +13,10 @@
 #   não cadastre volume pelo painel, que o criaria só para a API.
 # - A API só sobe com o worker saudável (depends_on), senão ela responderia 503
 #   no /readyz enquanto a lib carrega.
-# - stop_grace_period de 75s nos dois: o shutdown espera até 60s por uma
-#   transmissão em curso. Cortar antes deixa documento em desfecho indeterminado.
+# - stop_grace_period de 120s nos dois: o shutdown espera por uma transmissão em
+#   curso até ACBR_WORKER_TIMEOUT_SECONDS (90s por padrão) mais 10s de margem.
+#   Cortar antes deixa documento em desfecho indeterminado. Suba junto se
+#   aumentar o timeout no .env.
 # - container_name nos dois: sem ele, a Kronn remove os containers pelo nome do
 #   serviço, e "worker" pegaria qualquer container do host com esse nome.
 # - O worker fica fora da kronn-network: não recebe tráfego, e a rede padrão do
@@ -44,7 +46,7 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
-    stop_grace_period: 75s
+    stop_grace_period: 120s
     restart: unless-stopped
     labels:
       - traefik.enable=true
@@ -71,7 +73,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    stop_grace_period: 75s
+    stop_grace_period: 120s
     restart: unless-stopped
 
 networks:

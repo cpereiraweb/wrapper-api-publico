@@ -47,7 +47,7 @@ func main() {
 			Backend() string
 			Version() (string, error)
 		}
-	}{{"NFSe", svc.NFSe}, {"CTe", svc.CTe}, {"MDFe", svc.MDFe}, {"NFe", svc.NFe}, {"Boleto", svc.Boleto}} {
+	}{{"NFSe", svc.NFSe}, {"CTe", svc.CTe}, {"MDFe", svc.MDFe}, {"Boleto", svc.Boleto}} {
 		if v, err := b.sv.Version(); err != nil {
 			slog.Warn("lib fiscal indisponível", "servico", b.nome, "backend", b.sv.Backend(), "err", err)
 		} else {
@@ -61,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler, reciclar := acbr.RPCHandlerReciclavel(svc, cfg.ACBr.WorkerSlots, cfg.ACBr.WorkerMaxCalls)
+	handler, reciclar := acbr.RPCHandler(svc, cfg.ACBr.WorkerSlots, cfg.ACBr.WorkerMaxCalls)
 	srv := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -99,7 +99,7 @@ func main() {
 
 	// Prazo generoso: uma transmissão em curso está falando com a SEFAZ e não
 	// pode ser interrompida no meio: seria um documento em limbo.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ACBr.PrazoDeEncerramento())
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("erro no shutdown do worker", "err", err)

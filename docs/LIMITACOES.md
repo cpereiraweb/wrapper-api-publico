@@ -126,9 +126,23 @@ transmitir: falhou ali, nada saiu.
   configuração `Provedor` é recusada em todas as formas, então não há override
   possível por aqui. Se um município migrou e a tabela da sua versão está
   atrasada, o caminho é atualizar a biblioteca.
-- **Boletos: `ConsultarTitulos` não é exposto.** O método existe no binding, mas
-  a seção de filtro que ele exigiria (`[BoletoConsulta]`) não aparece no fonte
-  oficial do ACBr: o formato do INI seria chute.
+- **Em Brasília, ME/EPP do Simples sai pelo Ambiente Nacional a partir da
+  competência de 01/11/2026.** O ISSNet recusa essas notas com EM110, e quem não
+  é do Simples continua nele, então o caminho depende do emitente e não cabe na
+  tabela da lib: a regra fica em `vigencias`, em `internal/nfse/vigencia.go`,
+  uma linha por município e regime. Não há campo novo: `opSimpNac` e `dCompet` decidem, na geração e na
+  transmissão, e `provedor` na resposta do `/xml` diz por onde a nota vai sair.
+  `opSimpNac` errado manda a nota para o caminho errado. MEI fica de fora, e
+  os demais municípios só entram com a recusa comprovada.
+
+  Cancelamento, consulta e DANFSE seguem a chave da nota, cuja posição 8 diz onde
+  ela foi gerada, e `consulta-dps` procura primeiro no nacional e depois no
+  ISSNet. As consultas sem chave (`/consultas/{tipo}`) continuam só no ISSNet.
+  Na substituição, a nota nova decide: em competência a partir de 01/11 ela vai
+  pelo Ambiente Nacional, mesmo com a antiga no ISSNet.
+- **Boletos: não há consulta de títulos.** A seção de filtro que ela exigiria
+  (`[BoletoConsulta]`) não aparece no fonte oficial do ACBr: o formato do INI
+  seria chute.
 
 ## Representação gráfica (PDF)
 
@@ -145,6 +159,26 @@ O render exige ambiente gráfico (GTK2 sob Xvfb), já embutido na imagem. É o
 componente que mais crasha, por isso ele fica **fora** do caminho da emissão.
 
 ## Distribuição DF-e
+
+A biblioteca fiscal escolhe a classe do provedor pelo município, e só algumas
+implementam a distribuição de NFS-e. Por isso o município é opcional: informado,
+a distribuição sai pelo provedor dele; quando a classe responde "não
+implementado para este provedor" (ABRASF, próprio e parte das APIs próprias),
+ou sem município, ela sai pelo ADN (Ambiente de Dados Nacional), por um
+município fixo do Padrão Nacional e sem `credenciais` de prefeitura.
+
+A fila nem sempre é a do ADN. Nos municípios Infisc do RS (Caxias do Sul,
+Canoas, Campo Bom, Carlos Barbosa, Farroupilha, Garibaldi, Santiago, São Borja
+e Sapucaia do Sul) ela é a do sefin da prefeitura, com NSU próprio. Um NSU só
+vale na fila de onde veio: mande sempre o mesmo `municipio`, ou sempre nenhum,
+para o mesmo cursor.
+
+Na fila do ADN a consulta leva o `emitente.cnpj` como `cnpjConsulta`, que o ADN
+exige: sem o parâmetro ele responde `REJEICAO` sem nenhum erro listado, mesmo com
+o certificado do próprio CNPJ. A lib oficial não exporta a consulta com CNPJ; ela
+vem do patch `0005` (ver [ACBRLIB.md](ACBRLIB.md)). No sefin da prefeitura a
+consulta segue sem o parâmetro, que lá não foi testado. Uma rejeição sem motivo
+volta como 502 `distribuicao_rejeitada`, e não como 200 sem documentos.
 
 O cursor (NSU) vai e volta no payload: sem estado, é o cliente que guarda onde
 parou. **Não paralelize a distribuição do mesmo CNPJ**, sem o lock que existia
