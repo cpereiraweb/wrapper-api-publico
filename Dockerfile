@@ -122,6 +122,11 @@ COPY --from=acbrlib /artifacts/schemas/ /opt/acbr/schemas/
 COPY --from=acbrlib /artifacts/schemas-cte/ /opt/acbr/schemas-cte/
 COPY --from=acbrlib /artifacts/schemas-mdfe/ /opt/acbr/schemas-mdfe/
 COPY --from=acbrlib /artifacts/schemas-nfe/ /opt/acbr/schemas-nfe/
+# Marca da NFS-e no topo do DANFSe do Padrão Nacional, como no DANFSe oficial do
+# ADN. É a logo que a própria ACBr distribui (ACBrNFSeX/DANFSE). Em JPEG, como a
+# ACBr a embute: a lib converte a imagem para JPEG sem alfa, e o PNG transparente
+# saía com fundo preto. Ver ACBR_LOGO_NFSE.
+COPY --chmod=0644 docker/logo-nfse.jpg /opt/acbr/logo-nfse.jpg
 
 COPY --from=gobuild /out/api /usr/local/bin/api
 COPY --from=gobuild /out/fiscal-worker /usr/local/bin/fiscal-worker

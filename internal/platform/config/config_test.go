@@ -216,3 +216,24 @@ func TestConfig_NaoVazaOToken(t *testing.T) {
 		t.Errorf("o log precisa dizer que existe token:\n%s", buf.String())
 	}
 }
+
+// O padrão aponta para onde o Dockerfile copia a logo: sem isso a imagem
+// publicada sairia sem a marca da NFS-e no DANFSe, embora carregue o arquivo.
+func TestLogoNFSePadraoEhOArquivoDaImagem(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ACBr.LogoNFSe != "/opt/acbr/logo-nfse.jpg" {
+		t.Fatalf("LogoNFSe = %q", cfg.ACBr.LogoNFSe)
+	}
+
+	t.Setenv("ACBR_LOGO_NFSE", "/outro/lugar.png")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ACBr.LogoNFSe != "/outro/lugar.png" {
+		t.Fatalf("ACBR_LOGO_NFSE não foi lido: %q", cfg.ACBr.LogoNFSe)
+	}
+}

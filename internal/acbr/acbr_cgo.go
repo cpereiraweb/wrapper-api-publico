@@ -663,7 +663,7 @@ func (l *cgoLib) withSession(t Sessao, fn func(h C.LibHandle) (Result, error)) (
 	}
 	defer C.NFSE_Finalizar(h)
 
-	if err := applyConfig(h, t, sessionDir, l.cfg.SchemasPath); err != nil {
+	if err := applyConfig(h, t, sessionDir, l.cfg.SchemasPath, l.cfg.LogoNFSe); err != nil {
 		return Result{}, err
 	}
 	return fn(h)
@@ -671,7 +671,7 @@ func (l *cgoLib) withSession(t Sessao, fn func(h C.LibHandle) (Result, error)) (
 
 // applyConfig grava as chaves de configuração na instância: SSL para Linux,
 // certificado A1 (se informado) e as chaves adicionais da sessão.
-func applyConfig(h C.LibHandle, t Sessao, savePath, schemasPath string) error {
+func applyConfig(h C.LibHandle, t Sessao, savePath, schemasPath, logoNFSe string) error {
 	kvs := []ConfigKV{
 		{"DFe", "SSLCryptLib", sslCryptOpenSSL},
 		{"DFe", "SSLHttpLib", sslHttpOpenSSL},
@@ -694,6 +694,7 @@ func applyConfig(h C.LibHandle, t Sessao, savePath, schemasPath string) error {
 	if schemasPath != "" {
 		kvs = append(kvs, ConfigKV{"NFSe", "PathSchemas", schemasPath})
 	}
+	kvs = append(kvs, configDANFSe(logoNFSe)...)
 	if t.PFXBase64 != "" {
 		kvs = append(kvs,
 			ConfigKV{"DFe", "DadosPFX", t.PFXBase64},

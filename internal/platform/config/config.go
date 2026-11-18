@@ -79,6 +79,9 @@ type ACBr struct {
 	SchemasPath     string // XSD da NFS-e (por provedor)
 	SchemasPathCTe  string // XSD do CT-e
 	SchemasPathMDFe string // XSD do MDF-e
+	// LogoNFSe é a imagem da marca da NFS-e no topo do DANFSe do Padrão Nacional,
+	// como no DANFSe oficial do ADN. Vazio, ou arquivo ausente, sai sem logo.
+	LogoNFSe string
 	// LogNivel/LogPath ligam o log de depuração da ACBr. PERIGOSO: a partir do
 	// nível 3 ela grava XML e CERTIFICADO em disco. Ligue só para depurar, e
 	// apague depois: num serviço que recebe o certificado por payload, isso é a
@@ -159,6 +162,7 @@ func Load() (Config, error) {
 			SchemasPath:     env("ACBR_SCHEMAS_PATH", "/opt/acbr/schemas"),
 			SchemasPathCTe:  env("ACBR_SCHEMAS_PATH_CTE", "/opt/acbr/schemas-cte"),
 			SchemasPathMDFe: env("ACBR_SCHEMAS_PATH_MDFE", "/opt/acbr/schemas-mdfe"),
+			LogoNFSe:        env("ACBR_LOGO_NFSE", "/opt/acbr/logo-nfse.jpg"),
 			LogNivel:        env("ACBR_LOG_NIVEL", ""),
 			LogPath:         env("ACBR_LOG_PATH", ""),
 		},
