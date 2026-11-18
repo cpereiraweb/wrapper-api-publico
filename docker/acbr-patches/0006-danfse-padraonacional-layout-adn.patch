@@ -1,0 +1,3622 @@
+DANFSe do Padrao Nacional no layout do DANFSe oficial do ADN.
+
+O DANFSe oficial (adn.nfse.gov.br/danfse) vive fora do ar: 404 na producao
+restrita, 503 em producao. O render local do FortesReport tem as mesmas secoes,
+mas diverge na aparencia. Este patch o aproxima do oficial:
+
+- fundo #F2F2F2 no cabecalho e nas celulas de titulo (EMITENTE, PRESTADOR,
+  TOMADOR, SERVICO, as tres de TRIBUTACAO, VALOR TOTAL e VALOR LIQUIDO +
+  IBS/CBS), com TRLDraw por baixo dos rotulos;
+- nenhum rotulo pinta o proprio fundo (Transparent = True). Com False ele cobria
+  o cinza e o texto do vizinho: o ")" de "TRIBUTACAO MUNICIPAL (ISSQN)" sumia
+  sob o retangulo branco de "Tipo de Tributacao do ISSQN";
+- fontes do oficial: 7 pt em titulos, rotulos principais e valores, 6 pt nos
+  sub-rotulos (antes 8 a 10 pt, e os titulos estouravam a coluna);
+- quatro colunas iguais em todas as secoes (4/192/381/569 px);
+- textos e formatos do oficial: NFS-e, "Indicador Municipal (Inscricao)",
+  "Rio de Janeiro / RJ", "(21) 2038-8855", "33.04557 / 20.051-040",
+  "01.07.01 / 001", Ambiente Gerador e Tipo de Ambiente pelo codigo, e-mail em
+  minusculas, "-" no que estiver vazio;
+- canhoto no rodape da pagina, em tres colunas (data, assinatura, numero/chave).
+  A lib so o imprime com [DANFSe] ImprimeCanhoto=1;
+- corrige o "Calculo do BM" zerado, que punha o traco no ISSQN apurado e
+  deixava a propria celula em branco.
+
+O fundo cinza do cabecalho pede a logo (LogoNFSe) com fundo #F2F2F2.
+
+Revisao base: r49010.
+
+--- a/Fontes/ACBrDFe/ACBrNFSeX/DANFSE/Fortes/ACBrNFSeXDANFSeRLPadraoNacional.lfm
++++ b/Fontes/ACBrDFe/ACBrNFSeX/DANFSE/Fortes/ACBrNFSeXDANFSeRLPadraoNacional.lfm
+@@ -21,6 +21,14 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda02_Ide_NFSeBeforePrint
++      object rldFundoEmitente: TRLDraw
++        Left = 2
++        Height = 28
++        Top = 90
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object rllNumNF0: TRLLabel
+         Left = 4
+         Height = 18
+@@ -28,68 +36,68 @@
+         Width = 140
+         AutoSize = False
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel13: TRLLabel
+         Left = 4
+         Height = 11
+         Top = 35
+         Width = 89
+-        Caption = 'NÚMERO DA NFS-E'
++        Caption = 'NÚMERO DA NFS-e'
+         Font.Color = clBlack
+         Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel12: TRLLabel
+-        Left = 328
++        Left = 381
+         Height = 11
+         Top = 35
+         Width = 168
+-        Caption = 'DATA E HORA DA EMISSÃO DA NFS-E'
++        Caption = 'DATA E HORA DA EMISSÃO DA NFS-e'
+         Font.Color = clBlack
+         Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmissaoNFSe: TRLLabel
+-        Left = 328
++        Left = 381
+         Height = 18
+         Top = 45
+         Width = 140
+         AutoSize = False
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+       end
+       object RLLabel7: TRLLabel
+-        Left = 195
++        Left = 192
+         Height = 11
+         Top = 35
+         Width = 115
+-        Caption = 'COMPETÊNCIA DA NFS-E'
++        Caption = 'COMPETÊNCIA DA NFS-e'
+         Font.Color = clBlack
+         Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllCompetencia: TRLLabel
+-        Left = 195
++        Left = 192
+         Height = 13
+         Top = 45
+         Width = 72
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+       end
+@@ -104,16 +112,16 @@
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllNumeroDPS: TRLLabel
+-        Left = 5
++        Left = 4
+         Height = 15
+         Top = 74
+         Width = 118
+         AutoSize = False
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+       end
+@@ -122,13 +130,13 @@
+         Height = 11
+         Top = 4
+         Width = 136
+-        Caption = 'CHAVE DE ACESSO DA NFS-E'
++        Caption = 'CHAVE DE ACESSO DA NFS-e'
+         Font.Color = clBlack
+         Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllChaveAcesso: TRLLabel
+         Left = 4
+@@ -137,12 +145,12 @@
+         Width = 506
+         AutoSize = False
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+       end
+       object RLLabel16: TRLLabel
+-        Left = 195
++        Left = 192
+         Height = 11
+         Top = 62
+         Width = 68
+@@ -152,21 +160,21 @@
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllSerieDPS: TRLLabel
+-        Left = 196
++        Left = 192
+         Height = 15
+         Top = 74
+         Width = 118
+         AutoSize = False
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+       end
+       object RLLabel22: TRLLabel
+-        Left = 328
++        Left = 381
+         Height = 11
+         Top = 62
+         Width = 159
+@@ -176,24 +184,24 @@
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmissaoDPS: TRLLabel
+-        Left = 329
++        Left = 381
+         Height = 18
+         Top = 74
+         Width = 140
+         AutoSize = False
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+       end
+       object RLMemo1: TRLMemo
+-        Left = 540
++        Left = 569
+         Height = 28
+-        Top = 88
+-        Width = 209
++        Top = 66
++        Width = 180
+         Alignment = taCenter
+         AutoSize = False
+         Behavior = [beSiteExpander]
+@@ -212,40 +220,40 @@
+         Height = 11
+         Top = 92
+         Width = 94
+-        Caption = 'EMITENTE DA NFS-E'
++        Caption = 'EMITENTE DA NFS-e'
+         Font.Color = clBlack
+         Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitente: TRLLabel
+-        Left = 5
++        Left = 4
+         Height = 13
+         Top = 104
+         Width = 51
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel15: TRLLabel
+-        Left = 195
++        Left = 192
+         Height = 11
+         Top = 92
+         Width = 94
+-        Caption = 'SITUAÇÃO DA NFS-E'
++        Caption = 'SITUAÇÃO DA NFS-e'
+         Font.Color = clBlack
+         Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel19: TRLLabel
+-        Left = 329
++        Left = 381
+         Height = 11
+         Top = 92
+         Width = 58
+@@ -255,35 +263,35 @@
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllSituacao: TRLLabel
+-        Left = 196
++        Left = 192
+         Height = 13
+         Top = 104
+         Width = 52
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllFinalidade: TRLLabel
+-        Left = 329
++        Left = 381
+         Height = 13
+         Top = 104
+         Width = 58
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object imgQRCode: TRLImage
+-        Left = 607
+-        Height = 80
+-        Top = 5
+-        Width = 80
++        Left = 630
++        Height = 58
++        Top = 4
++        Width = 58
+         Center = True
+         Scaled = True
+       end
+@@ -300,34 +308,42 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda03_EmitenteBeforePrint
++      object rldFundoPrestador: TRLDraw
++        Left = 2
++        Height = 24
++        Top = 2
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object RLLabel30: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 0
+         Width = 92
+-        Caption = 'Inscrição Municipal'
++        Caption = 'Indicador Municipal (Inscrição)'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel32: TRLLabel
+-        Left = 264
++        Left = 192
+         Height = 14
+         Top = 2
+         Width = 86
+         Caption = 'CNPJ / CPF / NIF'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteInscMunicipal: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 15
+         Width = 104
+@@ -335,10 +351,10 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteCNPJ: TRLLabel
+-        Left = 264
++        Left = 192
+         Height = 13
+         Top = 15
+         Width = 127
+@@ -347,7 +363,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel1: TRLLabel
+         Left = 4
+@@ -356,11 +372,11 @@
+         Width = 121
+         Caption = 'Nome / Nome Empresarial'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteNome: TRLLabel
+         Left = 4
+@@ -371,23 +387,23 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel2: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 11
+         Top = 2
+         Width = 41
+         Caption = 'Telefone'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteTelefone: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 12
+         Top = 15
+         Width = 81
+@@ -395,7 +411,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel24: TRLLabel
+         Left = 4
+@@ -404,11 +420,11 @@
+         Width = 46
+         Caption = 'Endereço'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteEndereco: TRLLabel
+         Left = 4
+@@ -419,23 +435,23 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel29: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 58
+         Width = 31
+         Caption = 'E-mail'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteEmail: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 70
+         Width = 69
+@@ -443,23 +459,23 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel31: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 31
+         Width = 96
+         Caption = 'Município / Sigla UF'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteMunicipio: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 43
+         Width = 86
+@@ -467,23 +483,23 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel55: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 11
+         Top = 31
+         Width = 90
+         Caption = 'Código IBGE / CEP'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteCEP: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 12
+         Top = 43
+         Width = 65
+@@ -491,7 +507,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel60: TRLLabel
+         Left = 4
+@@ -500,14 +516,14 @@
+         Width = 195
+         Caption = 'Simples Nacional na Data de Competência'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteSimplesNacional: TRLLabel
+-        Left = 3
++        Left = 4
+         Height = 12
+         Top = 95
+         Width = 115
+@@ -515,23 +531,23 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel69: TRLLabel
+-        Left = 408
++        Left = 192
+         Height = 11
+         Top = 83
+         Width = 182
+         Caption = 'Regime de Apuração Tributária pelo SN'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllEmitenteRegimeApuracao: TRLLabel
+-        Left = 408
++        Left = 192
+         Height = 12
+         Top = 95
+         Width = 118
+@@ -539,7 +555,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel21: TRLLabel
+         Left = 4
+@@ -548,11 +564,11 @@
+         Width = 146
+         Caption = 'PRESTADOR / FORNECEDOR'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+     end
+     object rlbBanda04_Tomador: TRLBand[2]
+@@ -567,8 +583,16 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda04_TomadorBeforePrint
++      object rldFundoTomador: TRLDraw
++        Left = 2
++        Height = 24
++        Top = 2
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object rllTomaCNPJ: TRLLabel
+-        Left = 264
++        Left = 192
+         Height = 12
+         Top = 16
+         Width = 57
+@@ -576,10 +600,10 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllTomaInscMunicipal: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 16
+         Width = 90
+@@ -587,7 +611,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllTomaNome: TRLLabel
+         Left = 4
+@@ -598,10 +622,10 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllTomaEndereco: TRLLabel
+-        Left = 5
++        Left = 4
+         Height = 12
+         Top = 68
+         Width = 71
+@@ -609,10 +633,10 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllTomaMunicipio: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 42
+         Width = 72
+@@ -622,7 +646,7 @@
+         ParentFont = False
+       end
+       object rllTomaEmail: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 68
+         Width = 55
+@@ -630,10 +654,10 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllTomaTelefone: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 12
+         Top = 16
+         Width = 67
+@@ -641,7 +665,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel4: TRLLabel
+         Left = 4
+@@ -650,11 +674,11 @@
+         Width = 133
+         Caption = 'TOMADOR / ADQUIRENTE'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel70: TRLLabel
+         Left = 4
+@@ -663,11 +687,11 @@
+         Width = 121
+         Caption = 'Nome / Nome Empresarial'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel71: TRLLabel
+         Left = 4
+@@ -676,92 +700,92 @@
+         Width = 46
+         Caption = 'Endereço'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel72: TRLLabel
+-        Left = 264
++        Left = 192
+         Height = 14
+         Top = 2
+         Width = 86
+         Caption = 'CNPJ / CPF / NIF'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel73: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 2
+         Width = 92
+-        Caption = 'Inscrição Municipal'
++        Caption = 'Indicador Municipal (Inscrição)'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel75: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 56
+         Width = 31
+         Caption = 'E-mail'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel76: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 30
+         Width = 96
+         Caption = 'Município / Sigla UF'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel77: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 11
+         Top = 2
+         Width = 41
+         Caption = 'Telefone'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel78: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 11
+         Top = 30
+         Width = 90
+         Caption = 'Código IBGE / CEP'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllTomaCEP: TRLLabel
+-        Left = 608
++        Left = 569
+         Height = 12
+         Top = 42
+         Width = 51
+@@ -783,6 +807,14 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda07_ServicoPrestadoBeforePrint
++      object rldFundoServico: TRLDraw
++        Left = 2
++        Height = 24
++        Top = 2
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object RLLabel14: TRLLabel
+         Left = 4
+         Height = 15
+@@ -790,40 +822,40 @@
+         Width = 120
+         Caption = 'SERVIÇO PRESTADO'
+         Font.Color = clBlack
+-        Font.Height = -12
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel61: TRLLabel
+-        Left = 170
++        Left = 192
+         Height = 11
+         Top = 2
+         Width = 197
+-        Caption = 'Código de Tributação Nacional / Municípal'
++        Caption = 'Código de Tributação Nacional/Municipal'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel92: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 3
+         Width = 59
+-        Caption = 'Código NBS'
++        Caption = 'Código da NBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllLocalPrestacao: TRLLabel
+-        Left = 540
++        Left = 569
+         Height = 12
+         Top = 15
+         Width = 74
+@@ -831,23 +863,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel94: TRLLabel
+-        Left = 539
++        Left = 569
+         Height = 11
+         Top = 2
+         Width = 165
+         Caption = 'Local da Prestação / Sigla UF / País'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllCodigoNBS: TRLLabel
+-        Left = 409
++        Left = 381
+         Height = 12
+         Top = 15
+         Width = 58
+@@ -855,7 +887,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel96: TRLLabel
+         Left = 4
+@@ -864,11 +896,11 @@
+         Width = 100
+         Caption = 'Descrição do Serviço'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rlmDescServico: TRLMemo
+         Left = 4
+@@ -883,7 +915,7 @@
+           'rlmDescServico'
+         )
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rlmCodTribNac: TRLMemo
+         Left = 4
+@@ -899,10 +931,10 @@
+           'rlmCodTribNac'
+         )
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllCodigoTrib: TRLLabel
+-        Left = 170
++        Left = 192
+         Height = 12
+         Top = 15
+         Width = 54
+@@ -910,7 +942,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+     end
+     object rlbBanda14_InformacoesComplementares: TRLBand[4]
+@@ -946,11 +978,11 @@
+         Width = 230
+         Caption = 'INFORMAÇÕES COMPLEMENTARES'
+         Font.Color = clBlack
+-        Font.Height = -13
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllMsgTeste: TRLLabel
+         Left = 24
+@@ -985,10 +1017,10 @@
+         Alignment = taRightJustify
+         Caption = 'Qtde'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel66: TRLLabel
+         Left = 4
+@@ -997,10 +1029,10 @@
+         Width = 48
+         Caption = 'Descrição'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel67: TRLLabel
+         Left = 670
+@@ -1010,10 +1042,10 @@
+         Alignment = taRightJustify
+         Caption = 'Valor ISS'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel68: TRLLabel
+         Left = 384
+@@ -1022,10 +1054,10 @@
+         Width = 70
+         Caption = 'Valor Unitário'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel5: TRLLabel
+         Left = 504
+@@ -1034,10 +1066,10 @@
+         Width = 85
+         Caption = 'Valor do Serviço'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel9: TRLLabel
+         Left = 590
+@@ -1046,10 +1078,10 @@
+         Width = 76
+         Caption = 'Base Cálc. (%)'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+     end
+     object rlbBanda09_SubItens: TRLSubDetail[6]
+@@ -1077,10 +1109,10 @@
+           Alignment = taCenter
+           AutoSize = False
+           Font.Color = clBlack
+-          Font.Height = -11
++          Font.Height = -9
+           Font.Name = 'Arial'
+           ParentFont = False
+-          Transparent = False
++          Transparent = True
+         end
+         object rlmServicoDescricao: TRLMemo
+           Left = 4
+@@ -1089,10 +1121,10 @@
+           Width = 373
+           Behavior = [beSiteExpander]
+           Font.Color = clBlack
+-          Font.Height = -11
++          Font.Height = -9
+           Font.Name = 'Arial'
+           ParentFont = False
+-          Transparent = False
++          Transparent = True
+         end
+         object txtServicoUnitario: TRLLabel
+           Left = 384
+@@ -1102,10 +1134,10 @@
+           Alignment = taRightJustify
+           AutoSize = False
+           Font.Color = clBlack
+-          Font.Height = -11
++          Font.Height = -9
+           Font.Name = 'Arial'
+           ParentFont = False
+-          Transparent = False
++          Transparent = True
+         end
+         object txtServicoTotal: TRLLabel
+           Left = 504
+@@ -1115,10 +1147,10 @@
+           Alignment = taRightJustify
+           AutoSize = False
+           Font.Color = clBlack
+-          Font.Height = -11
++          Font.Height = -9
+           Font.Name = 'Arial'
+           ParentFont = False
+-          Transparent = False
++          Transparent = True
+         end
+         object txtBaseCalculo: TRLLabel
+           Left = 590
+@@ -1128,10 +1160,10 @@
+           Alignment = taRightJustify
+           AutoSize = False
+           Font.Color = clBlack
+-          Font.Height = -11
++          Font.Height = -9
+           Font.Name = 'Arial'
+           ParentFont = False
+-          Transparent = False
++          Transparent = True
+         end
+         object txtISS: TRLLabel
+           Left = 670
+@@ -1141,10 +1173,10 @@
+           Alignment = taRightJustify
+           AutoSize = False
+           Font.Color = clBlack
+-          Font.Height = -11
++          Font.Height = -9
+           Font.Name = 'Arial'
+           ParentFont = False
+-          Transparent = False
++          Transparent = True
+         end
+       end
+     end
+@@ -1164,7 +1196,7 @@
+         Font.Height = -8
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllSistema: TRLLabel
+         Left = 356
+@@ -1177,7 +1209,7 @@
+         Font.Height = -8
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+     end
+     object rlbBanda10_TributacaoMunicipal: TRLBand[8]
+@@ -1192,6 +1224,14 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda10_TributacaoMunicipalBeforePrint
++      object rldFundoTribMun: TRLDraw
++        Left = 2
++        Height = 24
++        Top = 2
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object RLLabel10: TRLLabel
+         Left = 4
+         Height = 15
+@@ -1199,27 +1239,27 @@
+         Width = 190
+         Caption = 'TRIBUTAÇÃO MUNICIPAL (ISSQN)'
+         Font.Color = clBlack
+-        Font.Height = -12
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel11: TRLLabel
+-        Left = 204
++        Left = 192
+         Height = 11
+         Top = 2
+         Width = 135
+         Caption = 'Tipo de Tributação do ISSQN'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllTribISSQN: TRLLabel
+-        Left = 205
++        Left = 192
+         Height = 12
+         Top = 14
+         Width = 54
+@@ -1227,23 +1267,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel17: TRLLabel
+-        Left = 204
++        Left = 192
+         Height = 11
+         Top = 29
+         Width = 135
+         Caption = 'Tipo de Imunidade do ISSQN'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllTipoImunidade: TRLLabel
+-        Left = 204
++        Left = 192
+         Height = 12
+         Top = 42
+         Width = 70
+@@ -1251,7 +1291,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel25: TRLLabel
+         Left = 4
+@@ -1260,11 +1300,11 @@
+         Width = 49
+         Caption = 'BC ISSQN'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorBCISSQN: TRLLabel
+         Left = 4
+@@ -1275,23 +1315,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel90: TRLLabel
+-        Left = 365
++        Left = 381
+         Height = 11
+         Top = 29
+         Width = 177
+         Caption = 'Suspensão da Exigibilidade do ISSQN'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllSuspensao: TRLLabel
+-        Left = 365
++        Left = 381
+         Height = 12
+         Top = 42
+         Width = 56
+@@ -1299,23 +1339,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel93: TRLLabel
+-        Left = 573
++        Left = 569
+         Height = 11
+         Top = 57
+         Width = 127
+-        Caption = 'Desconto Incondicionando'
++        Caption = 'Desconto Incondicionado'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorDescIncond: TRLLabel
+-        Left = 573
++        Left = 569
+         Height = 12
+         Top = 70
+         Width = 81
+@@ -1323,23 +1363,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel97: TRLLabel
+-        Left = 204
++        Left = 192
+         Height = 11
+         Top = 85
+         Width = 81
+         Caption = 'Alíquota Aplicada'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllAliquotaAplicada: TRLLabel
+-        Left = 203
++        Left = 192
+         Height = 12
+         Top = 98
+         Width = 78
+@@ -1347,23 +1387,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel99: TRLLabel
+-        Left = 365
++        Left = 381
+         Height = 11
+         Top = 2
+         Width = 235
+-        Caption = 'Município / Sigla UF / Pais de Incidência do ISSQN'
++        Caption = 'Município / Sigla UF / País de Incidência do ISSQN'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllMunicipioIncidencia: TRLLabel
+-        Left = 365
++        Left = 381
+         Height = 12
+         Top = 14
+         Width = 90
+@@ -1371,23 +1411,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel101: TRLLabel
+-        Left = 573
++        Left = 569
+         Height = 11
+         Top = 29
+         Width = 139
+         Caption = 'Núm. do Processo Suspensão'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllNumeroProcesso: TRLLabel
+-        Left = 573
++        Left = 569
+         Height = 12
+         Top = 42
+         Width = 82
+@@ -1395,23 +1435,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel103: TRLLabel
+-        Left = 365
++        Left = 381
+         Height = 11
+         Top = 57
+         Width = 119
+         Caption = 'Total Deduções/Reduções'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorTotalDedRed: TRLLabel
+-        Left = 365
++        Left = 381
+         Height = 12
+         Top = 70
+         Width = 85
+@@ -1419,23 +1459,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel105: TRLLabel
+-        Left = 365
++        Left = 381
+         Height = 11
+         Top = 85
+         Width = 92
+         Caption = 'Retenção do ISSQN'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllRetencaoISSQN: TRLLabel
+-        Left = 365
++        Left = 381
+         Height = 12
+         Top = 98
+         Width = 79
+@@ -1443,23 +1483,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel111: TRLLabel
+-        Left = 204
++        Left = 192
+         Height = 11
+         Top = 57
+         Width = 70
+         Caption = 'Cálculo do BM'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllCalculoBM: TRLLabel
+-        Left = 204
++        Left = 192
+         Height = 12
+         Top = 70
+         Width = 54
+@@ -1467,23 +1507,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel113: TRLLabel
+-        Left = 573
++        Left = 569
+         Height = 11
+         Top = 85
+         Width = 73
+         Caption = 'ISSQN Apurado'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorISSQNApurado: TRLLabel
+-        Left = 573
++        Left = 569
+         Height = 12
+         Top = 98
+         Width = 94
+@@ -1491,20 +1531,20 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel109: TRLLabel
+         Left = 4
+         Height = 11
+         Top = 57
+         Width = 93
+-        Caption = 'Beneficio Municipal'
++        Caption = 'Benefício Municipal'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllBeneficioMunic: TRLLabel
+         Left = 4
+@@ -1515,7 +1555,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel107: TRLLabel
+         Left = 4
+@@ -1524,11 +1564,11 @@
+         Width = 143
+         Caption = 'Regime Especial de Tributação'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllRegimeEspecial: TRLLabel
+         Left = 4
+@@ -1539,15 +1579,14 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+     end
+     object rlbBanda01_Logos: TRLBand[9]
+       Left = 23
+-      Height = 69
++      Height = 52
+       Top = 19
+       Width = 752
+-      AutoSize = True
+       BandType = btHeader
+       Borders.Sides = sdCustom
+       Borders.DrawLeft = True
+@@ -1555,10 +1594,18 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda01_LogosBeforePrint
++      object rldFundoCabecalho: TRLDraw
++        Left = 2
++        Height = 48
++        Top = 2
++        Width = 748
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object RLLabel74: TRLLabel
+         Left = 327
+         Height = 15
+-        Top = 3
++        Top = 6
+         Width = 74
+         Alignment = taCenter
+         Caption = 'DANFSe v2.0'
+@@ -1567,12 +1614,12 @@
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel8: TRLLabel
+         Left = 285
+         Height = 15
+-        Top = 18
++        Top = 20
+         Width = 168
+         Alignment = taCenter
+         Caption = 'Documento Auxiliar da NFS-e'
+@@ -1581,21 +1628,21 @@
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rliLogoNFSe: TRLImage
+-        Left = 2
+-        Height = 63
+-        Top = 2
+-        Width = 251
++        Left = 4
++        Height = 32
++        Top = 6
++        Width = 160
+         Center = True
+         Scaled = True
+       end
+       object rlmPrefeitura: TRLMemo
+-        Left = 540
++        Left = 569
+         Height = 14
+-        Top = 4
+-        Width = 204
++        Top = 6
++        Width = 180
+         Behavior = [beSiteExpander]
+         Font.Color = clBlack
+         Font.Height = -11
+@@ -1614,19 +1661,18 @@
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel33: TRLLabel
+-        Left = 540
+-        Height = 14
+-        Top = 54
+-        Width = 42
+-        Caption = 'Página:'
++        Left = 569
++        Height = 10
++        Top = 19
++        Width = 180
++        Caption = ''
+         Font.CharSet = ANSI_CHARSET
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -8
+         Font.Name = 'Arial'
+-        Font.Style = [fsBold]
+         ParentFont = False
+       end
+       object RLSystemInfo1: TRLSystemInfo
+@@ -1641,16 +1687,17 @@
+         Font.Name = 'Arial'
+         Info = itPageNumber
+         ParentFont = False
++        Visible = False
+       end
+       object RLLabel62: TRLLabel
+-        Left = 659
+-        Height = 15
+-        Top = 53
+-        Width = 7
+-        Caption = '/'
++        Left = 569
++        Height = 10
++        Top = 27
++        Width = 180
++        Caption = ''
+         Font.CharSet = ANSI_CHARSET
+         Font.Color = clBlack
+-        Font.Height = -13
++        Font.Height = -8
+         Font.Name = 'Arial'
+         ParentFont = False
+       end
+@@ -1665,6 +1712,7 @@
+         Font.Name = 'Arial'
+         Info = itLastPageNumber
+         ParentFont = False
++        Visible = False
+       end
+     end
+     object rlbBanda06_Intermediario: TRLBand[10]
+@@ -1680,7 +1728,7 @@
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda06_IntermediarioBeforePrint
+       object rllInterCNPJ: TRLLabel
+-        Left = 264
++        Left = 192
+         Height = 12
+         Top = 17
+         Width = 54
+@@ -1688,10 +1736,10 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllInterInscMunicipal: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 18
+         Width = 85
+@@ -1699,7 +1747,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllInterNome: TRLLabel
+         Left = 4
+@@ -1710,7 +1758,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllInterEndereco: TRLLabel
+         Left = 4
+@@ -1721,10 +1769,10 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllInterMunicipio: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 44
+         Width = 67
+@@ -1734,7 +1782,7 @@
+         ParentFont = False
+       end
+       object rllInterEmail: TRLLabel
+-        Left = 409
++        Left = 381
+         Height = 12
+         Top = 71
+         Width = 52
+@@ -1742,10 +1790,10 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllInterTelefone: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 12
+         Top = 18
+         Width = 65
+@@ -1753,7 +1801,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel81: TRLLabel
+         Left = 4
+@@ -1762,11 +1810,11 @@
+         Width = 166
+         Caption = 'INTERMEDIÁRIO DA OPERAÇÃO'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel82: TRLLabel
+         Left = 4
+@@ -1775,11 +1823,11 @@
+         Width = 121
+         Caption = 'Nome / Nome Empresarial'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel83: TRLLabel
+         Left = 4
+@@ -1788,92 +1836,92 @@
+         Width = 46
+         Caption = 'Endereço'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel84: TRLLabel
+-        Left = 264
++        Left = 192
+         Height = 14
+         Top = 2
+         Width = 86
+         Caption = 'CNPJ / CPF / NIF'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel85: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 6
+         Width = 92
+-        Caption = 'Inscrição Municipal'
++        Caption = 'Indicador Municipal (Inscrição)'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel86: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 58
+         Width = 31
+         Caption = 'E-mail'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel87: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 31
+         Width = 96
+         Caption = 'Município / Sigla UF'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel88: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 11
+         Top = 6
+         Width = 41
+         Caption = 'Telefone'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel89: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 11
+         Top = 32
+         Width = 90
+         Caption = 'Código IBGE / CEP'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllInterCEP: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 12
+         Top = 44
+         Width = 48
+@@ -1883,19 +1931,19 @@
+         ParentFont = False
+       end
+       object rllIntermediarioNaoIdentificado: TRLLabel
+-        Left = 185
+-        Height = 16
+-        Top = 0
+-        Width = 382
++        Left = 4
++        Height = 14
++        Top = 2
++        Width = 750
+         Align = faCenterTop
+         Alignment = taCenter
+-        Caption = 'INTERMEDIÁRIO DO SERVIÇO NÃO IDENTIFICADO NA NFS-e'
++        Caption = 'INTERMEDIÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e'
+         Font.Color = clBlack
+-        Font.Height = -13
++        Font.Height = -9
+         Font.Name = 'Arial'
+-        Font.Style = [fsBold]
+         ParentFont = False
+         Transparent = False
++        AutoSize = False
+       end
+     end
+     object rlbBanda11_TributacaoFederal: TRLBand[11]
+@@ -1910,6 +1958,14 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda11_TributacaoFederalBeforePrint
++      object rldFundoTribFed: TRLDraw
++        Left = 2
++        Height = 24
++        Top = 2
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object RLLabel115: TRLLabel
+         Left = 4
+         Height = 15
+@@ -1917,27 +1973,27 @@
+         Width = 215
+         Caption = 'TRIBUTAÇÃO FEDERAL (EXCETO CBS)'
+         Font.Color = clBlack
+-        Font.Height = -12
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel116: TRLLabel
+-        Left = 238
++        Left = 192
+         Height = 11
+         Top = 5
+         Width = 26
+         Caption = 'IRRF'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorIRRF: TRLLabel
+-        Left = 239
++        Left = 192
+         Height = 12
+         Top = 18
+         Width = 54
+@@ -1945,7 +2001,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel118: TRLLabel
+         Left = 4
+@@ -1954,14 +2010,14 @@
+         Width = 138
+         Caption = 'PIS - Débito Apuração Própria'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorPIS: TRLLabel
+-        Left = 3
++        Left = 4
+         Height = 12
+         Top = 42
+         Width = 46
+@@ -1969,23 +2025,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel124: TRLLabel
+-        Left = 377
++        Left = 381
+         Height = 11
+         Top = 5
+         Width = 163
+-        Caption = 'Contribuição Previdenciária-Retida'
++        Caption = 'Contribuição Previdenciária - Retida'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorCP: TRLLabel
+-        Left = 376
++        Left = 381
+         Height = 12
+         Top = 18
+         Width = 44
+@@ -1993,23 +2049,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel126: TRLLabel
+-        Left = 238
++        Left = 192
+         Height = 11
+         Top = 31
+         Width = 153
+-        Caption = 'COFINS-Débito Apuração Própria'
++        Caption = 'COFINS - Débito Apuração Própria'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorCOFINS: TRLLabel
+-        Left = 237
++        Left = 192
+         Height = 12
+         Top = 44
+         Width = 67
+@@ -2017,23 +2073,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel132: TRLLabel
+-        Left = 574
++        Left = 569
+         Height = 11
+         Top = 3
+         Width = 140
+-        Caption = 'Contribuições Sociais-Retidas'
++        Caption = 'Contribuições Sociais - Retidas'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorCSLL: TRLLabel
+-        Left = 574
++        Left = 569
+         Height = 12
+         Top = 16
+         Width = 54
+@@ -2041,23 +2097,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel134: TRLLabel
+-        Left = 426
++        Left = 381
+         Height = 11
+         Top = 31
+         Width = 162
+-        Caption = 'Descrição Contrib. Sociais-Retidas'
++        Caption = 'Descrição Contrib. Sociais - Retidas'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllDescCSLL: TRLLabel
+-        Left = 426
++        Left = 381
+         Height = 12
+         Top = 44
+         Width = 55
+@@ -2065,7 +2121,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+     end
+     object rlbBanda13_ValorTotaNFSe: TRLBand[12]
+@@ -2080,34 +2136,50 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda13_ValorTotaNFSeBeforePrint
++      object rldFundoLiqIBSCBS: TRLDraw
++        Left = 565
++        Height = 32
++        Top = 29
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
++      object rldFundoValorTotal: TRLDraw
++        Left = 2
++        Height = 24
++        Top = 2
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object RLLabel3: TRLLabel
+         Left = 4
+         Height = 15
+         Top = 2
+         Width = 139
+-        Caption = 'VALOR TOTAL DA NFS-E'
++        Caption = 'VALOR TOTAL DA NFS-e'
+         Font.Color = clBlack
+-        Font.Height = -12
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel26: TRLLabel
+-        Left = 227
++        Left = 192
+         Height = 11
+         Top = 2
+         Width = 130
+-        Caption = 'Valor da Operação / Serviço'
++        Caption = 'VALOR DA OPERAÇÃO / SERVIÇO'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorTotalServico: TRLLabel
+-        Left = 227
++        Left = 192
+         Height = 12
+         Top = 16
+         Width = 83
+@@ -2115,23 +2187,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel35: TRLLabel
+-        Left = 557
++        Left = 569
+         Height = 11
+         Top = 3
+         Width = 114
+         Caption = 'Desconto Condicionado'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorTotalDescCond: TRLLabel
+-        Left = 557
++        Left = 569
+         Height = 12
+         Top = 16
+         Width = 95
+@@ -2139,23 +2211,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel37: TRLLabel
+-        Left = 392
++        Left = 381
+         Height = 11
+         Top = 31
+         Width = 82
+         Caption = 'Total do IBS/CBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorTotalIBSCBS: TRLLabel
+-        Left = 392
++        Left = 381
+         Height = 12
+         Top = 46
+         Width = 85
+@@ -2163,23 +2235,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel39: TRLLabel
+-        Left = 392
++        Left = 381
+         Height = 11
+         Top = 3
+         Width = 121
+         Caption = 'Desconto Incondicionado'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorTotalDescIncond: TRLLabel
+-        Left = 392
++        Left = 381
+         Height = 12
+         Top = 16
+         Width = 101
+@@ -2187,7 +2259,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel41: TRLLabel
+         Left = 4
+@@ -2196,11 +2268,11 @@
+         Width = 179
+         Caption = 'Total das Retenções (ISSQN / Federais)'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorTotalISSQNRetido: TRLLabel
+         Left = 4
+@@ -2211,23 +2283,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel43: TRLLabel
+-        Left = 227
++        Left = 192
+         Height = 11
+         Top = 31
+         Width = 110
+-        Caption = 'Valor Líquido da NFS-e'
++        Caption = 'VALOR LÍQUIDO DA NFS-e'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorTotalLiq: TRLLabel
+-        Left = 227
++        Left = 192
+         Height = 12
+         Top = 46
+         Width = 63
+@@ -2235,23 +2307,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel20: TRLLabel
+-        Left = 557
++        Left = 569
+         Height = 11
+         Top = 31
+         Width = 160
+-        Caption = 'Valor Líquido da NFS-e + IBS/CBS'
++        Caption = 'VALOR LÍQUIDO DA NFS-e + IBS/CBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorLiqIBSCBS: TRLLabel
+-        Left = 557
++        Left = 569
+         Height = 12
+         Top = 46
+         Width = 77
+@@ -2259,7 +2331,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+     end
+     object rlbBanda05_Destinatario: TRLBand[13]
+@@ -2275,7 +2347,7 @@
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda05_DestinatarioBeforePrint
+       object rllDestCNPJ: TRLLabel
+-        Left = 264
++        Left = 192
+         Height = 12
+         Top = 16
+         Width = 54
+@@ -2283,10 +2355,10 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllDestInscMunicipal: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 12
+         Top = 16
+         Width = 87
+@@ -2294,7 +2366,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllDestNome: TRLLabel
+         Left = 4
+@@ -2305,7 +2377,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllDestEndereco: TRLLabel
+         Left = 4
+@@ -2316,10 +2388,10 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllDestMunicipio: TRLLabel
+-        Left = 409
++        Left = 381
+         Height = 12
+         Top = 42
+         Width = 69
+@@ -2329,7 +2401,7 @@
+         ParentFont = False
+       end
+       object rllDestEmail: TRLLabel
+-        Left = 409
++        Left = 381
+         Height = 12
+         Top = 68
+         Width = 52
+@@ -2337,10 +2409,10 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllDestTelefone: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 12
+         Top = 16
+         Width = 64
+@@ -2348,7 +2420,7 @@
+         Font.Height = -9
+         Font.Name = 'Microsoft Sans Serif'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel42: TRLLabel
+         Left = 4
+@@ -2357,11 +2429,11 @@
+         Width = 162
+         Caption = 'DESTINATÁRIO DA OPERAÇÃO'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel44: TRLLabel
+         Left = 4
+@@ -2370,11 +2442,11 @@
+         Width = 121
+         Caption = 'Nome / Nome Empresarial'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel47: TRLLabel
+         Left = 4
+@@ -2383,92 +2455,92 @@
+         Width = 46
+         Caption = 'Endereço'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel48: TRLLabel
+-        Left = 264
++        Left = 192
+         Height = 14
+         Top = 2
+         Width = 86
+         Caption = 'CNPJ / CPF / NIF'
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel49: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 2
+         Width = 92
+-        Caption = 'Inscrição Municipal'
++        Caption = 'Indicador Municipal (Inscrição)'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel51: TRLLabel
+-        Left = 409
++        Left = 381
+         Height = 11
+         Top = 56
+         Width = 31
+         Caption = 'E-mail'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel52: TRLLabel
+-        Left = 408
++        Left = 381
+         Height = 11
+         Top = 29
+         Width = 96
+         Caption = 'Município / Sigla UF'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel53: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 11
+         Top = 2
+         Width = 41
+         Caption = 'Telefone'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel56: TRLLabel
+-        Left = 607
++        Left = 569
+         Height = 11
+         Top = 29
+         Width = 90
+         Caption = 'Código IBGE / CEP'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllDestCEP: TRLLabel
+-        Left = 608
++        Left = 569
+         Height = 12
+         Top = 42
+         Width = 48
+@@ -2478,19 +2550,19 @@
+         ParentFont = False
+       end
+       object rllDestinatarioNaoIdentificado: TRLLabel
+-        Left = 188
+-        Height = 16
+-        Top = 0
+-        Width = 376
++        Left = 4
++        Height = 14
++        Top = 2
++        Width = 750
+         Align = faCenterTop
+         Alignment = taCenter
+-        Caption = 'DESTINATÁRIO DO SERVIÇO NÃO IDENTIFICADO NA NFS-e'
++        Caption = 'DESTINATÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e'
+         Font.Color = clBlack
+-        Font.Height = -13
++        Font.Height = -9
+         Font.Name = 'Arial'
+-        Font.Style = [fsBold]
+         ParentFont = False
+         Transparent = False
++        AutoSize = False
+       end
+     end
+     object rlbBanda12_TributacaoFederalIBSCBS: TRLBand[14]
+@@ -2505,34 +2577,42 @@
+       Borders.DrawRight = True
+       Borders.DrawBottom = True
+       BeforePrint = rlbBanda12_TributacaoFederalIBSCBSBeforePrint
++      object rldFundoIBSCBS: TRLDraw
++        Left = 2
++        Height = 24
++        Top = 2
++        Width = 185
++        Brush.Color = 15921906
++        Pen.Color = 15921906
++      end
+       object RLLabel27: TRLLabel
+         Left = 4
+         Height = 15
+         Top = 2
+         Width = 132
+-        Caption = 'TRIBUTAÇÃO IBS / CBS'
++        Caption = 'TRIBUTAÇÃO IBS/CBS'
+         Font.Color = clBlack
+-        Font.Height = -12
++        Font.Height = -9
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel28: TRLLabel
+-        Left = 186
++        Left = 192
+         Height = 11
+         Top = 3
+         Width = 78
+         Caption = 'CST / cClassTrib'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllCST: TRLLabel
+-        Left = 185
++        Left = 192
+         Height = 12
+         Top = 15
+         Width = 28
+@@ -2540,20 +2620,20 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel34: TRLLabel
+         Left = 4
+         Height = 11
+         Top = 29
+         Width = 134
+-        Caption = 'Exclusões e Reduções da BC'
++        Caption = 'Exclusões e Reduções da Base de Cálculo'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllExcRedBC: TRLLabel
+         Left = 4
+@@ -2564,23 +2644,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel38: TRLLabel
+-        Left = 292
++        Left = 381
+         Height = 11
+         Top = 2
+         Width = 377
+         Caption = 'Indicador de Operação / Código IBGE Incidência / Município Incidência / Sigla UF'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllcIndOp: TRLLabel
+-        Left = 292
++        Left = 381
+         Height = 12
+         Top = 15
+         Width = 40
+@@ -2588,23 +2668,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel57: TRLLabel
+-        Left = 186
++        Left = 192
+         Height = 11
+         Top = 29
+         Width = 144
+-        Caption = 'BC após Exclusões e Reduções'
++        Caption = 'Base de Cálculo Após Exclusões e Reduções'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorBC: TRLLabel
+-        Left = 186
++        Left = 192
+         Height = 12
+         Top = 41
+         Width = 44
+@@ -2612,23 +2692,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel59: TRLLabel
+-        Left = 374
++        Left = 381
+         Height = 11
+         Top = 56
+         Width = 123
+         Caption = 'Alíq. Efetiva Estadual - IBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllAliqEfetIBSUF: TRLLabel
+-        Left = 374
++        Left = 381
+         Height = 12
+         Top = 69
+         Width = 71
+@@ -2636,23 +2716,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel63: TRLLabel
+-        Left = 374
++        Left = 381
+         Height = 11
+         Top = 29
+         Width = 176
+         Caption = 'Red. Alíquota IBS / Red. Alíquota CBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllRedAliquota: TRLLabel
+-        Left = 374
++        Left = 381
+         Height = 12
+         Top = 41
+         Width = 60
+@@ -2660,20 +2740,20 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel79: TRLLabel
+         Left = 4
+         Height = 11
+         Top = 56
+         Width = 128
+-        Caption = 'Alíq. Efetiva Municípal - IBS'
++        Caption = 'Alíq. Efetiva Municipal - IBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllAliqEfetIBSMun: TRLLabel
+         Left = 4
+@@ -2684,7 +2764,7 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel91: TRLLabel
+         Left = 4
+@@ -2693,11 +2773,11 @@
+         Width = 118
+         Caption = 'Valor Total Apurado - IBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorApurIBS: TRLLabel
+         Left = 4
+@@ -2708,23 +2788,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel98: TRLLabel
+-        Left = 186
++        Left = 192
+         Height = 11
+         Top = 56
+         Width = 140
+         Caption = 'Valor Apurado Municipal - IBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorApurIBSMun: TRLLabel
+-        Left = 186
++        Left = 192
+         Height = 12
+         Top = 69
+         Width = 82
+@@ -2732,23 +2812,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel102: TRLLabel
+-        Left = 186
++        Left = 192
+         Height = 11
+         Top = 83
+         Width = 69
+         Caption = 'Alíquota - CBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllAliquotaCBS: TRLLabel
+-        Left = 186
++        Left = 192
+         Height = 12
+         Top = 95
+         Width = 62
+@@ -2756,23 +2836,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel106: TRLLabel
+-        Left = 374
++        Left = 381
+         Height = 11
+         Top = 83
+         Width = 85
+-        Caption = 'Alíq. Efetiva - CBS'
++        Caption = 'Alíquota Efetiva - CBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllAliqEfetCBS: TRLLabel
+-        Left = 374
++        Left = 381
+         Height = 12
+         Top = 95
+         Width = 62
+@@ -2780,23 +2860,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel110: TRLLabel
+-        Left = 580
++        Left = 569
+         Height = 11
+         Top = 29
+         Width = 111
+         Caption = 'Alíq. - IBS UF / IBS Mun'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllAliquotaIBS: TRLLabel
+-        Left = 580
++        Left = 569
+         Height = 12
+         Top = 41
+         Width = 58
+@@ -2804,23 +2884,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel114: TRLLabel
+-        Left = 580
++        Left = 569
+         Height = 11
+         Top = 56
+         Width = 135
+         Caption = 'Valor Apurado Estadual - IBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorApurIBSUF: TRLLabel
+-        Left = 580
++        Left = 569
+         Height = 12
+         Top = 69
+         Width = 78
+@@ -2828,23 +2908,23 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel119: TRLLabel
+-        Left = 580
++        Left = 569
+         Height = 11
+         Top = 83
+         Width = 122
+         Caption = 'Valor Total Apurado - CBS'
+         Font.Color = clBlack
+-        Font.Height = -9
++        Font.Height = -8
+         Font.Name = 'Arial'
+         Font.Style = [fsBold]
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object rllValorApurCBS: TRLLabel
+-        Left = 580
++        Left = 569
+         Height = 12
+         Top = 95
+         Width = 69
+@@ -2852,15 +2932,15 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+     end
+     object rlbCanhoto: TRLBand[15]
+       Left = 23
+-      Height = 55
++      Height = 34
+       Top = 1122
+       Width = 752
+-      BandType = btSummary
++      BandType = btFooter
+       Borders.Sides = sdCustom
+       Borders.DrawLeft = True
+       Borders.DrawTop = True
+@@ -2868,40 +2948,42 @@
+       Borders.DrawBottom = True
+       BeforePrint = rlbCanhotoBeforePrint
+       object rllNumChave: TRLLabel
+-        Left = 402
++        Left = 381
+         Height = 18
+-        Top = 33
++        Top = 14
+         Width = 345
+         AutoSize = False
+         Font.Color = clWindowText
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
+       end
+       object RLLabel50: TRLLabel
+-        Left = 403
++        Left = 381
+         Height = 15
+-        Top = 13
++        Top = 3
+         Width = 135
+-        Caption = 'N. NFS-e / Chave NFS-e'
++        Caption = 'N° NFS-e / CHAVE NFS-e'
+         Font.Color = clWindowText
+-        Font.Height = -12
++        Font.Height = -8
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
++        Font.Style = [fsBold]
+       end
+       object RLLabel54: TRLLabel
+-        Left = 151
++        Left = 192
+         Height = 15
+-        Top = 14
++        Top = 3
+         Width = 225
+-        Caption = 'Identificação e Assinatura do Recebedor'
++        Caption = 'IDENTIFICAÇÃO E ASSINATURA'
+         Font.Color = clWindowText
+-        Font.Height = -12
++        Font.Height = -8
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
++        Font.Style = [fsBold]
+       end
+       object RLDraw5: TRLDraw
+         Left = 150
+@@ -2910,18 +2992,20 @@
+         Width = 248
+         Brush.Style = bsClear
+         DrawKind = dkLine
++        Visible = False
+       end
+       object RLLabel121: TRLLabel
+-        Left = 5
++        Left = 4
+         Height = 15
+-        Top = 14
++        Top = 3
+         Width = 33
+-        Caption = 'DATA'
++        Caption = 'DATA CIENTIFICAÇÃO:'
+         Font.Color = clWindowText
+-        Font.Height = -12
++        Font.Height = -8
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
++        Font.Style = [fsBold]
+       end
+       object RLLabel122: TRLLabel
+         Left = 4
+@@ -2933,7 +3017,8 @@
+         Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
++        Visible = False
+       end
+       object rllNumNFSe: TRLLabel
+         Left = 558
+@@ -2941,10 +3026,27 @@
+         Top = 14
+         Width = 58
+         Font.Color = clBlack
+-        Font.Height = -11
++        Font.Height = -9
+         Font.Name = 'Arial'
+         ParentFont = False
+-        Transparent = False
++        Transparent = True
++        Visible = False
++      end
++      object rldCanhotoDiv1: TRLDraw
++        Left = 188
++        Height = 34
++        Top = 0
++        Width = 1
++        DrawKind = dkLine
++        Angle = 90
++      end
++      object rldCanhotoDiv2: TRLDraw
++        Left = 377
++        Height = 34
++        Top = 0
++        Width = 1
++        DrawKind = dkLine
++        Angle = 90
+       end
+     end
+   end
+--- a/Fontes/ACBrDFe/ACBrNFSeX/DANFSE/Fortes/ACBrNFSeXDANFSeRLPadraoNacional.pas
++++ b/Fontes/ACBrDFe/ACBrNFSeX/DANFSE/Fortes/ACBrNFSeXDANFSeRLPadraoNacional.pas
+@@ -298,6 +298,18 @@
+     RLLabel62: TRLLabel;
+     RLSystemInfo2: TRLSystemInfo;
+     imgQRCode: TRLImage;
++    rldFundoCabecalho: TRLDraw;
++    rldFundoEmitente: TRLDraw;
++    rldFundoPrestador: TRLDraw;
++    rldFundoTomador: TRLDraw;
++    rldFundoServico: TRLDraw;
++    rldFundoTribMun: TRLDraw;
++    rldFundoTribFed: TRLDraw;
++    rldFundoIBSCBS: TRLDraw;
++    rldFundoValorTotal: TRLDraw;
++    rldFundoLiqIBSCBS: TRLDraw;
++    rldCanhotoDiv1: TRLDraw;
++    rldCanhotoDiv2: TRLDraw;
+     rllCodigoTrib: TRLLabel;
+ 
+     procedure RLNFSeBeforePrint(Sender: TObject; var PrintIt: Boolean);
+@@ -333,6 +345,7 @@
+     procedure rlbBanda05_DestinatarioBeforePrint(Sender: TObject;
+       var PrintIt: Boolean);
+     procedure rlbCanhotoBeforePrint(Sender: TObject; var PrintIt: Boolean);
++    procedure OcultarLinhasMunicipais(Ocultar: Boolean);
+     procedure rlbBanda12_TributacaoFederalIBSCBSBeforePrint(Sender: TObject;
+       var PrintIt: Boolean);
+   private
+@@ -374,6 +387,66 @@
+ 
+   { TfrlXDANFSeRLPadraoNacional }
+ 
++// Formatos do DANFSe oficial do ADN.
++function TracoSeVazio(const s: string): string;
++begin
++  if Trim(s) = '' then
++    Result := '-'
++  else
++    Result := s;
++end;
++
++// 3304557 -> 33.04557
++function FormatarIBGEADN(const c: string): string;
++begin
++  if Length(c) = 7 then
++    Result := Copy(c, 1, 2) + '.' + Copy(c, 3, 5)
++  else
++    Result := c;
++end;
++
++// 20051040 -> 20.051-040
++function FormatarCEPADN(const c: string): string;
++var
++  d: string;
++  i: Integer;
++begin
++  d := '';
++  for i := 1 to Length(c) do
++    if CharInSet(c[i], ['0'..'9']) then
++      d := d + c[i];
++  if Length(d) = 8 then
++    Result := Copy(d, 1, 2) + '.' + Copy(d, 3, 3) + '-' + Copy(d, 6, 3)
++  else
++    Result := c;
++end;
++
++// (21)2038-8855 -> (21) 2038-8855
++function FormatarFoneADN(const f: string): string;
++begin
++  Result := FormatarFone(f);
++  if (Pos(')', Result) > 0) and (Pos(') ', Result) = 0) then
++    Result := StringReplace(Result, ')', ') ', []);
++  Result := TracoSeVazio(Result);
++end;
++
++// Rio de Janeiro/RJ -> Rio de Janeiro / RJ
++function BarraComEspacos(const s: string): string;
++begin
++  Result := StringReplace(s, ' / ', '/', [rfReplaceAll]);
++  Result := StringReplace(Result, '/', ' / ', [rfReplaceAll]);
++end;
++
++// Pa�s do local: o oficial mostra '-' para o Brasil.
++function PaisADN(c: Integer): string;
++begin
++  if (c = 0) or (c = 1058) then
++    Result := '-'
++  else
++    Result := CodIBGEPaisToSiglaISO2(c);
++end;
++
++
+ class procedure TfrlXDANFSeRLPadraoNacional.QuebradeLinha(const sQuebradeLinha: String);
+ begin
+   FQuebradeLinha := sQuebradeLinha;
+@@ -387,6 +460,7 @@
+   inherited;
+ 
+   TDFeReportFortes.CarregarLogo(rliLogoNFSe, fpDANFSe.LogoNFSe);
++  rldFundoCabecalho.Width := rlbBanda01_Logos.Width - 2 * rldFundoCabecalho.Left;
+ 
+   rlbHomologacao.Visible := (fpNFSe.Producao = snNao);
+ 
+@@ -396,10 +470,13 @@
+     Ambiente := 'Produ��o';
+ 
+   rlmPrefeitura.Lines.Clear;
+-  rlmPrefeitura.Lines.Add(ACBrStr('Munic�pio: ') + fpNFSe.infNFSe.xLocEmi + '/' +
++  rlmPrefeitura.Lines.Add(ACBrStr('Munic�pio: ') + fpNFSe.infNFSe.xLocEmi + ' - ' +
+                                           fpNFSe.infNFSe.UFLocEmi);
+-  rlmPrefeitura.Lines.Add(ACBrStr('Ambiente Gerador: ' + ambGerToStrText(fpNFSe.infNFSe.ambGer)));
+-  rlmPrefeitura.Lines.Add(ACBrStr('Tipo Ambiente: ' + Ambiente));
++  RLLabel33.Caption := 'Ambiente Gerador: ' + ambGerToStr(fpNFSe.infNFSe.ambGer);
++  if fpNFSe.Producao = snNao then
++    RLLabel62.Caption := 'Tipo de Ambiente: 2'
++  else
++    RLLabel62.Caption := 'Tipo de Ambiente: 1';
+ end;
+ 
+ procedure TfrlXDANFSeRLPadraoNacional.rlbBanda02_Ide_NFSeBeforePrint(
+@@ -416,11 +493,11 @@
+   rllNumeroDPS.Caption := fpNFSe.IdentificacaoRps.Numero;
+ 
+   case fpNFSe.tpEmit of
+-    tePrestador: rllEmitente.Caption := ACBrStr('Prestador do Servi�o');
+-    teTomador: rllEmitente.Caption := ACBrStr('Tomador do Servi�o');
++    tePrestador: rllEmitente.Caption := ACBrStr('Prestador');
++    teTomador: rllEmitente.Caption := ACBrStr('Tomador');
+   else
+     // teIntermediario
+-    rllEmitente.Caption := ACBrStr('Intermedi�rio do Servi�o');
++    rllEmitente.Caption := ACBrStr('Intermedi�rio');
+   end;
+ 
+   rllCompetencia.Caption := IfThen(fpNFSe.Competencia > 0, FormatDateTime('dd/mm/yyyy', fpNFSe.Competencia), '');
+@@ -429,7 +506,10 @@
+ 
+   rllEmissaoNFSe.Caption := FormatDateTime('dd/mm/yyyy hh:nn:ss', fpNFSe.DataEmissao);
+   rllEmissaoDPS.Caption := FormatDateTime('dd/mm/yyyy hh:nn:ss', fpNFSe.DataEmissaoRPS);
+-  rllFinalidade.Caption := finNFSeToStrText(fpNFSe.IBSCBS.finNFSe);
++  if fpNFSe.IBSCBS.cIndOp <> '' then
++    rllFinalidade.Caption := finNFSeToStrText(fpNFSe.IBSCBS.finNFSe)
++  else
++    rllFinalidade.Caption := '-';
+ 
+   if fpNFSe.Link <> '' then
+     PintarQRCode(fpNFSe.Link, imgQRCode.Picture.Bitmap, qrUTF8NoBOM);
+@@ -458,7 +538,7 @@
+       rllEmitenteSimplesNacional.Caption := ACBrStr('Optante - Microempreendedor Individual (MEI)');
+   else
+     // osnOptanteMEEPP
+-    rllEmitenteSimplesNacional.Caption := ACBrStr('Optante - MicroEmpresa EPP');
++    rllEmitenteSimplesNacional.Caption := ACBrStr('Optante - Microempresa ou Empresa de ...');
+   end;
+ 
+   if fpNFSe.infNFSe.emit.Identificacao.Nif <> '' then
+@@ -466,29 +546,29 @@
+   else
+     rllEmitenteCNPJ.Caption := FormatarCNPJouCPF(fpNFSe.infNFSe.emit.Identificacao.CpfCnpj);
+ 
+-  rllEmitenteInscMunicipal.Caption := fpNFSe.infNFSe.emit.Identificacao.InscricaoMunicipal;
+-  rllEmitenteEmail.Caption := fpNFSe.infNFSe.emit.Contato.Email;
+-  rllEmitenteMunicipio.Caption := fpNFSe.infNFSe.emit.Endereco.xMunicipio + '/' +
++  rllEmitenteInscMunicipal.Caption := TracoSeVazio(fpNFSe.infNFSe.emit.Identificacao.InscricaoMunicipal);
++  rllEmitenteEmail.Caption := TracoSeVazio(LowerCase(fpNFSe.infNFSe.emit.Contato.Email));
++  rllEmitenteMunicipio.Caption := fpNFSe.infNFSe.emit.Endereco.xMunicipio + ' / ' +
+                                   fpNFSe.infNFSe.emit.Endereco.UF;
+ 
+   if fpNFSe.OptanteSN = osnOptanteMEEPP then
+   begin
+     case fpNFSe.RegimeApuracaoSN of
+       raFederaisMunicipalpeloSN:
+-        rllEmitenteRegimeApuracao.Caption := ACBrStr('Federais e Municipal pelo SN');
++        rllEmitenteRegimeApuracao.Caption := ACBrStr('Regime de apura��o dos tributos federais e municipal pelo Simples Nacional');
+       raFederaisSN:
+-        rllEmitenteRegimeApuracao.Caption := ACBrStr('Federais pelo SN');
++        rllEmitenteRegimeApuracao.Caption := ACBrStr('Regime de apura��o dos tributos federais pelo SN e o ISSQN pela NFS-e');
+     else
+       // raFederaisMunicipalforaSN
+-      rllEmitenteRegimeApuracao.Caption := ACBrStr('Federais e Municipal fora SN');
++      rllEmitenteRegimeApuracao.Caption := ACBrStr('Regime de apura��o dos tributos federais e municipal pela NFS-e');
+     end;
+   end
+   else
+     rllEmitenteRegimeApuracao.Caption := '-';
+ 
+-  rllEmitenteTelefone.Caption := FormatarFone(fpNFSe.infNFSe.emit.Contato.Telefone);
+-  rllEmitenteCEP.Caption := fpNFSe.Prestador.Endereco.CodigoMunicipio + ' / ' +
+-                            FormatarCEP(fpNFSe.infNFSe.emit.Endereco.CEP);
++  rllEmitenteTelefone.Caption := FormatarFoneADN(fpNFSe.infNFSe.emit.Contato.Telefone);
++  rllEmitenteCEP.Caption := FormatarIBGEADN(fpNFSe.Prestador.Endereco.CodigoMunicipio) + ' / ' +
++                            FormatarCEPADN(fpNFSe.infNFSe.emit.Endereco.CEP);
+ end;
+ 
+ procedure TfrlXDANFSeRLPadraoNacional.rlbBanda04_TomadorBeforePrint(
+@@ -512,13 +592,13 @@
+   else
+     rllTomaCNPJ.Caption := FormatarCNPJouCPF(fpNFSe.Tomador.IdentificacaoTomador.CpfCnpj);
+ 
+-  rllTomaInscMunicipal.Caption := fpNFSe.Tomador.IdentificacaoTomador.InscricaoMunicipal;
+-  rllTomaEmail.Caption := fpNFSe.Tomador.Contato.Email;
+-  rllTomaMunicipio.Caption := fpNFSe.Tomador.Endereco.xMunicipio + '/' +
++  rllTomaInscMunicipal.Caption := TracoSeVazio(fpNFSe.Tomador.IdentificacaoTomador.InscricaoMunicipal);
++  rllTomaEmail.Caption := TracoSeVazio(LowerCase(fpNFSe.Tomador.Contato.Email));
++  rllTomaMunicipio.Caption := fpNFSe.Tomador.Endereco.xMunicipio + ' / ' +
+                                   fpNFSe.Tomador.Endereco.UF;
+-  rllTomaTelefone.Caption := FormatarFone(fpNFSe.Tomador.Contato.Telefone);
+-  rllTomaCEP.Caption := fpNFSe.Tomador.Endereco.CodigoMunicipio + ' / ' +
+-                            FormatarCEP(fpNFSe.Tomador.Endereco.CEP);
++  rllTomaTelefone.Caption := FormatarFoneADN(fpNFSe.Tomador.Contato.Telefone);
++  rllTomaCEP.Caption := FormatarIBGEADN(fpNFSe.Tomador.Endereco.CodigoMunicipio) + ' / ' +
++                            FormatarCEPADN(fpNFSe.Tomador.Endereco.CEP);
+ end;
+ 
+ procedure TfrlXDANFSeRLPadraoNacional.rlbBanda05_DestinatarioBeforePrint(
+@@ -648,7 +728,7 @@
+             Copy(Codigo, 5, 2);
+ 
+   if fpNFSe.Servico.CodigoTributacaoMunicipio <> '' then
+-    Codigo := Codigo + '/' + fpNFSe.Servico.CodigoTributacaoMunicipio;
++    Codigo := Codigo + ' / ' + fpNFSe.Servico.CodigoTributacaoMunicipio;
+ 
+   rllCodigoTrib.Caption := Codigo;
+ 
+@@ -660,13 +740,13 @@
+   rlmCodTribNac.Lines.Clear;
+   rlmCodTribNac.Lines.Add(Desc);
+ 
+-  rllCodigoNBS.Caption := fpNFSe.Servico.CodigoNBS;
++  rllCodigoNBS.Caption := TracoSeVazio(fpNFSe.Servico.CodigoNBS);
+ 
+   if fpNFSe.Servico.CodigoPais = 0 then
+     fpNFSe.Servico.CodigoPais := 1058;
+ 
+-  rllLocalPrestacao.Caption := fpNFSe.Servico.MunicipioPrestacaoServico + ' / ' +
+-                              CodIBGEPaisToSiglaISO2(fpNFSe.Servico.CodigoPais);
++  rllLocalPrestacao.Caption := BarraComEspacos(fpNFSe.Servico.MunicipioPrestacaoServico) + ' / ' +
++                              PaisADN(fpNFSe.Servico.CodigoPais);
+ 
+   rlmDescServico.Lines.Clear;
+   rlmDescServico.Lines.Add(fpNFSe.Servico.Discriminacao);
+@@ -770,11 +850,8 @@
+   if fpNFSe.infNFSe.xLocIncid <> '' then
+   begin
+     rllMunicipioIncidencia.Caption := fpNFSe.infNFSe.xLocIncid + ' / ' +
+-                                      fpNFSe.infNFSe.UFLocIncid;
+-
+-    if fpNFSe.Servico.Valores.tribMun.cPaisResult > 0 then
+-      rllMunicipioIncidencia.Caption := rllMunicipioIncidencia.Caption + ' / ' +
+-        CodIBGEPaisToSiglaISO2(fpNFSe.Servico.Valores.tribMun.cPaisResult);
++                                      fpNFSe.infNFSe.UFLocIncid + ' / ' +
++                                      PaisADN(fpNFSe.Servico.Valores.tribMun.cPaisResult);
+   end
+   else
+     rllMunicipioIncidencia.Caption := 'Nenhum';
+@@ -834,12 +911,56 @@
+   if fpNFSe.infNFSe.Valores.vCalcBM > 0 then
+     rllCalculoBM.Caption := 'R$ ' + FormatFloatBr(fpNFSe.infNFSe.Valores.vCalcBM)
+   else
+-    rllValorISSQNApurado.Caption := '-';
++    rllCalculoBM.Caption := '-';
+ 
+   if fpNFSe.infNFSe.Valores.ValorIss > 0 then
+     rllValorISSQNApurado.Caption := 'R$ ' + FormatFloatBr(fpNFSe.infNFSe.Valores.ValorIss)
+   else
+     rllValorISSQNApurado.Caption := '-';
++
++  OcultarLinhasMunicipais(
++    (fpNFSe.RegimeEspecialTributacao = retNenhum) and
++    (rllTipoImunidade.Caption = '-') and
++    (fpNFSe.Servico.Valores.tribMun.tpSusp <> tsDecisaoJudicial) and
++    (fpNFSe.Servico.Valores.tribMun.tpSusp <> tsProcessoAdm) and
++    (rllNumeroProcesso.Caption = '-') and (rllBeneficioMunic.Caption = '-') and
++    (rllCalculoBM.Caption = '-') and (rllValorTotalDedRed.Caption = '-') and
++    (rllValorDescIncond.Caption = '-'));
++end;
++
++procedure TfrlXDANFSeRLPadraoNacional.OcultarLinhasMunicipais(Ocultar: Boolean);
++var
++  Opcionais: array[0..15] of TRLLabel;
++  Ultima: array[0..7] of TRLLabel;
++  i, Delta: Integer;
++begin
++  Opcionais[0] := RLLabel107;  Opcionais[1] := RLLabel17;
++  Opcionais[2] := RLLabel90;   Opcionais[3] := RLLabel101;
++  Opcionais[4] := rllRegimeEspecial; Opcionais[5] := rllTipoImunidade;
++  Opcionais[6] := rllSuspensao;      Opcionais[7] := rllNumeroProcesso;
++  Opcionais[8] := RLLabel109;  Opcionais[9] := RLLabel111;
++  Opcionais[10] := RLLabel103; Opcionais[11] := RLLabel93;
++  Opcionais[12] := rllBeneficioMunic;   Opcionais[13] := rllCalculoBM;
++  Opcionais[14] := rllValorTotalDedRed; Opcionais[15] := rllValorDescIncond;
++  Ultima[0] := RLLabel25;  Ultima[1] := RLLabel97;
++  Ultima[2] := RLLabel105; Ultima[3] := RLLabel113;
++  Ultima[4] := rllValorBCISSQN;  Ultima[5] := rllAliquotaAplicada;
++  Ultima[6] := rllRetencaoISSQN; Ultima[7] := rllValorISSQNApurado;
++
++  for i := Low(Opcionais) to High(Opcionais) do
++    Opcionais[i].Visible := not Ocultar;
++
++  // Posi��es do .lfm: a �ltima linha fica em 85 (r�tulos) e 98 (valores), e
++  // sobe para 29/42 quando as duas do meio somem.
++  if Ocultar then
++    Delta := 56
++  else
++    Delta := 0;
++  for i := 0 to 3 do
++    Ultima[i].Top := 85 - Delta;
++  for i := 4 to 7 do
++    Ultima[i].Top := 98 - Delta;
++  rlbBanda10_TributacaoMunicipal.Height := 115 - Delta;
+ end;
+ 
+ procedure TfrlXDANFSeRLPadraoNacional.rlbBanda11_TributacaoFederalBeforePrint(
+@@ -898,7 +1019,8 @@
+   else
+     rllValorCSLL.Caption := '-';
+ 
+-  rllDescCSLL.Caption := ACBrStr(tpRetPisCofinsDescricao(fpNFSe.Servico.Valores.tribFed.tpRetPisCofins));
++  rllDescCSLL.Caption := ACBrStr(tpRetPisCofinsToStr(fpNFSe.Servico.Valores.tribFed.tpRetPisCofins) + ' - ' +
++    tpRetPisCofinsDescricao(fpNFSe.Servico.Valores.tribFed.tpRetPisCofins));
+ end;
+ 
+ procedure TfrlXDANFSeRLPadraoNacional.rlbBanda12_TributacaoFederalIBSCBSBeforePrint(
+@@ -1025,6 +1147,7 @@
+   LValor: Double;
+ begin
+   inherited;
++  rldFundoLiqIBSCBS.Width := rlbBanda13_ValorTotaNFSe.Width - rldFundoLiqIBSCBS.Left - 2;
+ 
+   if fpNFSe.Servico.Valores.ValorServicos > 0 then
+     rllValorTotalServico.Caption := 'R$ ' + FormatFloatBr(fpNFSe.Servico.Valores.ValorServicos)
+@@ -1210,7 +1333,10 @@
+ 
+   PrintIt := fpDANFSe.ImprimeCanhoto;
+   rllNumNFSe.Caption := fpNFSe.Numero;
+-  rllNumChave.Caption := fpNFSe.CodigoVerificacao;
++  if Length(fpNFSe.ChaveAcesso) = 50 then
++    rllNumChave.Caption := fpNFSe.Numero + ' / ' + fpNFSe.ChaveAcesso
++  else
++    rllNumChave.Caption := fpNFSe.Numero + ' / ' + fpNFSe.CodigoVerificacao;
+ end;
+ 
+ procedure TfrlXDANFSeRLPadraoNacional.RLNFSeBeforePrint(Sender: TObject;

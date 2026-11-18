@@ -1,0 +1,28 @@
+DANFSe do Padrao Nacional no layout do DANFSe oficial do ADN.
+
+O DANFSe oficial (adn.nfse.gov.br/danfse) vive fora do ar: 404 na producao
+restrita, 503 em producao. O render local do FortesReport tem as mesmas secoes,
+mas diverge na aparencia. Este patch o aproxima do oficial:
+
+- fundo #F2F2F2 no cabecalho e nas celulas de titulo (EMITENTE, PRESTADOR,
+  TOMADOR, SERVICO, as tres de TRIBUTACAO, VALOR TOTAL e VALOR LIQUIDO +
+  IBS/CBS), com TRLDraw por baixo dos rotulos;
+- nenhum rotulo pinta o proprio fundo (Transparent = True). Com False ele cobria
+  o cinza e o texto do vizinho: o ")" de "TRIBUTACAO MUNICIPAL (ISSQN)" sumia
+  sob o retangulo branco de "Tipo de Tributacao do ISSQN";
+- fontes do oficial: 7 pt em titulos, rotulos principais e valores, 6 pt nos
+  sub-rotulos (antes 8 a 10 pt, e os titulos estouravam a coluna);
+- quatro colunas iguais em todas as secoes (4/192/381/569 px);
+- textos e formatos do oficial: NFS-e, "Indicador Municipal (Inscricao)",
+  "Rio de Janeiro / RJ", "(21) 2038-8855", "33.04557 / 20.051-040",
+  "01.07.01 / 001", Ambiente Gerador e Tipo de Ambiente pelo codigo, e-mail em
+  minusculas, "-" no que estiver vazio;
+- canhoto no rodape da pagina, em tres colunas (data, assinatura, numero/chave).
+  A lib so o imprime com [DANFSe] ImprimeCanhoto=1;
+- corrige o "Calculo do BM" zerado, que punha o traco no ISSQN apurado e
+  deixava a propria celula em branco.
+
+O fundo cinza do cabecalho pede a logo (LogoNFSe) com fundo #F2F2F2.
+
+Revisao base: r49010.
+

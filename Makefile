@@ -18,7 +18,12 @@ ACBR_FRCE_REF ?= 9c29ee7152a6293d3920ff44a2bf3cd384d7b081
 # próprio: a aba de Releases passa a ter só versões deste serviço. O arquivo
 # revisao.txt vai junto dos .so e precisa bater com ACBR_REV, senão o download
 # recusa: sem o nome da revisão na tag, nada mais amarraria as duas coisas.
-ACBR_LIBS_RELEASE ?= acbrlib-r49010
+# Fork D3S: as libs levam o patch 0006 (DANFSe no layout do ADN), então saem de um
+# release DESTE repositório, e não do 4devsmart. O sufixo -d3sN conta as
+# republicações da mesma revisão. Ver docs/FORK.md.
+ACBR_LIBS_RELEASE ?= acbrlib-r49010-d3s1
+ACBR_REPO ?= cpereiraweb/wrapper-api
+export ACBR_REPO
 OUT     := out
 PKGS    := ./...
 ACBRLIBS ?= ./acbr-libs
@@ -224,6 +229,13 @@ acbr-libs-baixar:
 acbr-libs-publicar:
 	@ACBR_REV=$(ACBR_REV) ACBR_LIBS_DIR=$(ACBRLIBS) \
 	  ACBR_LIBS_RELEASE=$(ACBR_LIBS_RELEASE) ./scripts/publicar-acbr-libs.sh
+
+## fork-patch-danfse: regera docker/acbr-patches/0006 a partir de acbr-source/ (ver docs/FORK.md)
+fork-patch-danfse:
+	@test -d $(ACBR_SRC)/acbr || { echo "falta o fonte em $(ACBR_SRC): rode 'make acbr-fonte'"; exit 1; }
+	@saida=$$(mktemp -d); python3 scripts/fork/gerar-patch-danfse.py \
+	  $(ACBR_SRC)/acbr/Fontes/ACBrDFe/ACBrNFSeX/DANFSE/Fortes "$$saida" \
+	  docker/acbr-patches/0006-danfse-padraonacional-layout-adn.patch
 
 ## acbr-libs-conferir: valida o cache local antes do build
 acbr-libs-conferir:
