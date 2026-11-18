@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/4devsmart/wrapper-api/internal/platform/httpx"
+	"log/slog"
 	"net/http"
 	"sync"
 )
@@ -19,7 +20,11 @@ import (
 // O canal devolvido é fechado quando o worker atinge maxCalls, sinalizando ao
 // processo que ele deve drenar e sair (o supervisor sobe um novo). maxCalls<=0
 // desliga a reciclagem.
-func RPCHandler(s *Servicos, slots, maxCalls int) (http.Handler, <-chan struct{}) {
+func RPCHandler(s *Servicos, slots, maxCalls int, opcoes ...OpcaoRPC) (http.Handler, <-chan struct{}) {
+	var o opcoesRPC
+	for _, op := range opcoes {
+		op(&o)
+	}
 	if slots <= 0 {
 		slots = 1
 	}
@@ -70,6 +75,13 @@ func RPCHandler(s *Servicos, slots, maxCalls int) (http.Handler, <-chan struct{}
 				Erro: "método desconhecido: " + p.Servico + "/" + p.Metodo,
 			})
 			return
+		}
+		if o.fontes != nil && len(resp.PDF) > 0 {
+			if pdf, err := o.fontes.Embutir(r.Context(), resp.PDF); err != nil {
+				slog.Warn("pdf sai sem as fontes embutidas", "servico", p.Servico, "metodo", p.Metodo, "err", err)
+			} else {
+				resp.PDF = pdf
+			}
 		}
 		httpx.JSON(w, http.StatusOK, resp)
 	})

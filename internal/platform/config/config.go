@@ -82,6 +82,10 @@ type ACBr struct {
 	// LogoNFSe é a imagem da marca da NFS-e no topo do DANFSe do Padrão Nacional,
 	// como no DANFSe oficial do ADN. Vazio, ou arquivo ausente, sai sem logo.
 	LogoNFSe string
+	// PDFGhostscript é o gs que embute as fontes nos PDFs da lib (ver
+	// acbr.EmbutidorDeFontes). ACBR_PDF_GS=off o desliga; binário ausente também,
+	// com aviso. Vazio aqui quer dizer desligado.
+	PDFGhostscript string
 	// LogNivel/LogPath ligam o log de depuração da ACBr. PERIGOSO: a partir do
 	// nível 3 ela grava XML e CERTIFICADO em disco. Ligue só para depurar, e
 	// apague depois: num serviço que recebe o certificado por payload, isso é a
@@ -163,6 +167,7 @@ func Load() (Config, error) {
 			SchemasPathCTe:  env("ACBR_SCHEMAS_PATH_CTE", "/opt/acbr/schemas-cte"),
 			SchemasPathMDFe: env("ACBR_SCHEMAS_PATH_MDFE", "/opt/acbr/schemas-mdfe"),
 			LogoNFSe:        env("ACBR_LOGO_NFSE", "/opt/acbr/logo-nfse.jpg"),
+			PDFGhostscript:  ghostscript(env("ACBR_PDF_GS", "gs")),
 			LogNivel:        env("ACBR_LOG_NIVEL", ""),
 			LogPath:         env("ACBR_LOG_PATH", ""),
 		},
@@ -190,6 +195,15 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("API_RATE_PER_MIN não pode ser negativo (0 desliga o limite)")
 	}
 	return cfg, nil
+}
+
+// ghostscript traduz ACBR_PDF_GS: "off" desliga o embutimento das fontes. Vazio
+// não serve para isso, porque env() lê vazio como "use o padrão".
+func ghostscript(v string) string {
+	if strings.EqualFold(v, "off") {
+		return ""
+	}
+	return v
 }
 
 func env(chave, padrao string) string {

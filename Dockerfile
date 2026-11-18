@@ -74,9 +74,15 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
         libxml2 libxslt1.1 libxmlsec1 libxmlsec1-openssl \
         libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libglib2.0-0 \
         fontconfig fonts-dejavu-core fonts-liberation \
+        ghostscript \
         libgtk2.0-0 xvfb xauth \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -u 10001 app
+
+# "Microsoft Sans Serif" (fonte dos valores no DANFSe do Padrão Nacional) vira
+# Liberation Sans, e não DejaVu Sans. Ver o próprio arquivo.
+COPY --chmod=0644 docker/fontconfig/30-microsoft-sans-serif.conf /etc/fonts/conf.d/30-microsoft-sans-serif.conf
+RUN fc-cache -f >/dev/null
 
 # O wrapper LibXmlSec do ACBr faz dlopen por nomes SEM versão (libxml2.so,
 # libxmlsec1.so…). O Debian só instala os versionados. Sem estes symlinks,

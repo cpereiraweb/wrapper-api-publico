@@ -237,3 +237,23 @@ func TestLogoNFSePadraoEhOArquivoDaImagem(t *testing.T) {
 		t.Fatalf("ACBR_LOGO_NFSE não foi lido: %q", cfg.ACBr.LogoNFSe)
 	}
 }
+
+func TestPDFGhostscriptPadraoEDesligavel(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ACBr.PDFGhostscript != "gs" {
+		t.Fatalf("padrão = %q, quero gs", cfg.ACBr.PDFGhostscript)
+	}
+	for _, v := range []string{"off", "OFF"} {
+		t.Setenv("ACBR_PDF_GS", v)
+		if cfg, _ = Load(); cfg.ACBr.PDFGhostscript != "" {
+			t.Fatalf("ACBR_PDF_GS=%s devia desligar, veio %q", v, cfg.ACBr.PDFGhostscript)
+		}
+	}
+	t.Setenv("ACBR_PDF_GS", "/usr/local/bin/gs")
+	if cfg, _ = Load(); cfg.ACBr.PDFGhostscript != "/usr/local/bin/gs" {
+		t.Fatalf("caminho não foi lido: %q", cfg.ACBr.PDFGhostscript)
+	}
+}
