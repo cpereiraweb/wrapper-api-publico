@@ -230,6 +230,10 @@ acbr-libs-publicar:
 	@ACBR_REV=$(ACBR_REV) ACBR_LIBS_DIR=$(ACBRLIBS) \
 	  ACBR_LIBS_RELEASE=$(ACBR_LIBS_RELEASE) ./scripts/publicar-acbr-libs.sh
 
+## fork-conferir: confere que as customizações do fork D3S continuam no lugar
+fork-conferir:
+	@scripts/fork/conferir-fork.sh
+
 ## fork-patch-danfse: regera docker/acbr-patches/0006 a partir de acbr-source/ (ver docs/FORK.md)
 fork-patch-danfse:
 	@test -d $(ACBR_SRC)/acbr || { echo "falta o fonte em $(ACBR_SRC): rode 'make acbr-fonte'"; exit 1; }

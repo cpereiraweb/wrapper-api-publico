@@ -32,6 +32,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      # Fork D3S: um merge do upstream pode desfazer o deploy contínuo, as libs
+      # do fork ou o DANFSe sem dar conflito. Aqui isso vira falha. docs/FORK.md.
+      - name: customizações do fork no lugar
+        run: scripts/fork/conferir-fork.sh
       - uses: actions/setup-go@v7
         with:
           go-version: "1.27.3"
