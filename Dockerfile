@@ -38,7 +38,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libglib2.0-0 libgtk2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=acbrlib /artifacts/libacbrnfse64.so /artifacts/libacbrcte64.so \
+# --chmod nos dois COPY do contexto: o COPY preserva o modo do arquivo do host, e
+# quem builda com umask 077 tem .so e entrypoint 0700, de dono root. A imagem roda
+# como app, que não lê nenhum dos dois: o container nem passa do entrypoint
+# ("cannot open /usr/local/bin/entrypoint.sh: Permission denied"). No runner do CI
+# o umask é 022 e o problema não aparece, por isso ele não pode depender do host.
+COPY --chmod=0755 --from=acbrlib /artifacts/libacbrnfse64.so /artifacts/libacbrcte64.so \
      /artifacts/libacbrmdfe64.so /artifacts/libacbrnfe64.so /artifacts/libacbrboleto64.so /usr/lib/
 RUN ldconfig
 
@@ -104,7 +109,12 @@ ENV OPENSSL_CONF=/etc/ssl/openssl-legacy.cnf
 # "Fontconfig error: No writable cache directories".
 ENV XDG_CACHE_HOME=/tmp/.cache
 
-COPY --from=acbrlib /artifacts/libacbrnfse64.so /artifacts/libacbrcte64.so \
+# --chmod nos dois COPY do contexto: o COPY preserva o modo do arquivo do host, e
+# quem builda com umask 077 tem .so e entrypoint 0700, de dono root. A imagem roda
+# como app, que não lê nenhum dos dois: o container nem passa do entrypoint
+# ("cannot open /usr/local/bin/entrypoint.sh: Permission denied"). No runner do CI
+# o umask é 022 e o problema não aparece, por isso ele não pode depender do host.
+COPY --chmod=0755 --from=acbrlib /artifacts/libacbrnfse64.so /artifacts/libacbrcte64.so \
      /artifacts/libacbrmdfe64.so /artifacts/libacbrnfe64.so /artifacts/libacbrboleto64.so /usr/lib/
 RUN ldconfig
 
@@ -115,8 +125,7 @@ COPY --from=acbrlib /artifacts/schemas-nfe/ /opt/acbr/schemas-nfe/
 
 COPY --from=gobuild /out/api /usr/local/bin/api
 COPY --from=gobuild /out/fiscal-worker /usr/local/bin/fiscal-worker
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Socket RPC entre API e worker (único volume do stack, e não guarda dado).
 RUN mkdir -p /run/wrapper && chown app:app /run/wrapper
