@@ -24,6 +24,42 @@ func capturarLog(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
+// semCarimbo devolve o log sem o campo "time" de cada linha. Procurar um dado no
+// log inteiro achava o carimbo: "21:42:17.987636484Z" contém "9876", a inscrição
+// municipal do emitente de teste, e o teste de vazamento falhava sem vazamento
+// nenhum, a cada poucas centenas de execuções.
+func semCarimbo(t *testing.T, log string) string {
+	t.Helper()
+	var out []string
+	for _, l := range strings.Split(strings.TrimSpace(log), "\n") {
+		if l == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatalf("linha de log não é JSON: %v\n%s", err, l)
+		}
+		delete(m, slog.TimeKey)
+		b, err := json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, string(b))
+	}
+	return strings.Join(out, "\n")
+}
+
+func TestSemCarimbo_TiraSoOHorario(t *testing.T) {
+	log := `{"time":"2026-11-18T21:42:17.987636484Z","level":"INFO","msg":"nfse","rejeicoes":["E0001"]}` + "\n"
+	got := semCarimbo(t, log)
+	if strings.Contains(got, "9876") || strings.Contains(got, "time") {
+		t.Fatalf("o carimbo ficou: %s", got)
+	}
+	if !strings.Contains(got, `"rejeicoes":["E0001"]`) || !strings.Contains(got, `"msg":"nfse"`) {
+		t.Fatalf("tirou mais que o carimbo: %s", got)
+	}
+}
+
 // linhaDaOperacao devolve a única linha "nfse" do buffer.
 func linhaDaOperacao(t *testing.T, buf *bytes.Buffer) map[string]any {
 	t.Helper()
@@ -186,7 +222,7 @@ func TestOperacao_NaoVazaDadoPessoal(t *testing.T) {
 	post(t, muxDe(f), "/nfse/transmissao", corpo)
 	post(t, muxDe(f), "/nfse/consulta", envelope(munAPIPropria, map[string]any{"chave": chaveDeBrasilia}))
 
-	log := buf.String()
+	log := semCarimbo(t, buf.String())
 	vazou(t, "log da operação", log)
 	for _, s := range []string{cnpj, cpf, chaveDeBrasilia, "irregular", "ACME", "9876"} {
 		if strings.Contains(log, s) {
