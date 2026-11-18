@@ -38,7 +38,7 @@ jobs:
         run: scripts/fork/conferir-fork.sh
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           cache: true
       # Gate de formatação: falha se algum .go rastreado não estiver gofmt-limpo.
       - name: gofmt
@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           cache: true
       # As libs NEEDED pelo .so: o linker precisa delas para resolver as
       # referências transitivas.
@@ -110,7 +110,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           cache: true
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
       - run: CGO_ENABLED=0 govulncheck ./...
@@ -125,7 +125,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           cache: true
       - uses: golangci/golangci-lint-action@v9
         with:
